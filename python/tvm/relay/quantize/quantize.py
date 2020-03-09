@@ -191,7 +191,7 @@ class QuantizeContext(object):
 
     def __init__(self):
         self.qnode_map = dict()
-        self._conv2d_counter = 0
+        self._conv_counter = 0
         self._stop_quantize = False
 
     def check_to_skip(self, ref_call):
@@ -203,12 +203,12 @@ class QuantizeContext(object):
         if current_qconfig().skip_conv_layers is not None:
             # check skip conv layers
             skipped_indices = [int(x) for x in current_qconfig().skip_conv_layers]
-            if self._conv2d_counter in skipped_indices:
-                if ref_call.op.name == 'nn.conv2d':
-                    self._conv2d_counter += 1
+            if self._conv_counter in skipped_indices:
+                if ref_call.op.name in ['nn.conv2d', 'nn.conv3d']:
+                    self._conv_counter += 1
                 return True
-            if ref_call.op.name == 'nn.conv2d':
-                self._conv2d_counter += 1
+            if ref_call.op.name == ['nn.conv2d', 'nn.conv3d']:
+                self._conv_counter += 1
 
         return False
 
@@ -351,5 +351,4 @@ def quantize(mod, params=None, dataset=None):
                                                "QuantizeRealize"]):
         with quantize_context():
             mod = quantize_seq(mod)
-
     return mod

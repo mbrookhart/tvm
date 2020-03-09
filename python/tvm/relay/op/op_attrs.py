@@ -31,6 +31,11 @@ class Conv2DAttrs(Attrs):
 
 
 @register_relay_attr_node
+class Conv3DAttrs(Attrs):
+    """Attributes for nn.conv3d"""
+
+
+@register_relay_attr_node
 class Conv2DWinogradAttrs(Attrs):
     """Attributes for nn.contrib_conv2d_winograd_without_weight_transform"""
 

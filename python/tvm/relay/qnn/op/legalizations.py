@@ -32,6 +32,11 @@ from ...util import get_scalar_from_constant
 def legalize_qnn_conv2d(attrs, inputs, types):
     return qnn_conv2d_legalize(attrs, inputs, types)
 
+# Registering QNN Conv2D legalization function.
+@reg.register_qnn_legalize("qnn.conv3d")
+def legalize_qnn_conv3d(attrs, inputs, types):
+    return qnn_conv3d_legalize(attrs, inputs, types)
+
 # Registering QNN dense legalization function.
 @reg.register_qnn_legalize("qnn.dense")
 def legalize_qnn_dense(attrs, inputs, types):
@@ -41,6 +46,13 @@ def legalize_qnn_dense(attrs, inputs, types):
 # Generic QNN Conv2D legalization function.
 @tvm.target.generic_func
 def qnn_conv2d_legalize(attrs, inputs, types):
+    """Default legalization is None."""
+    return None
+
+# Default to None. If overridden by target, this will not be run.
+# Generic QNN ConveD legalization function.
+@tvm.target.generic_func
+def qnn_conv3d_legalize(attrs, inputs, types):
     """Default legalization is None."""
     return None
 
@@ -257,6 +269,13 @@ def _qnn_conv2d_legalize_intel_cpu(attrs, inputs, types):
     if is_fast_int8_on_intel():
         return helper_change_dtypes_to_uint8_int8(attrs, inputs, types, relay.qnn.op.conv2d)
     return helper_no_fast_int8_hw_legalization(attrs, inputs, types, relay.nn.conv2d)
+
+@qnn_conv3d_legalize.register('cpu')
+def _qnn_conv3d_legalize_intel_cpu(attrs, inputs, types):
+    # The VNNI transformations prefer uint8 x int8 datatypes.
+    if is_fast_int8_on_intel():
+        return helper_change_dtypes_to_uint8_int8(attrs, inputs, types, relay.qnn.op.conv3d)
+    return helper_no_fast_int8_hw_legalization(attrs, inputs, types, relay.nn.conv3d)
 
 @qnn_dense_legalize.register('cpu')
 def _qnn_dense_legalize_intel_cpu(attrs, inputs, types):

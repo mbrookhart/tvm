@@ -55,6 +55,18 @@ def conv2d_partition_function(ref_call, new_args, ctx):
     ret = _forward_op(ref_call, [data, kernel])
     return QPartitionExpr(ret)
 
+@register_partition_function("nn.conv3d")
+def conv3d_partition_function(ref_call, new_args, ctx):
+    """Rewrite function for conv2d for partition"""
+    data_cond, data = partition_expr_check(new_args[0])
+    kernel_cond, kernel = partition_expr_check(new_args[1])
+
+    assert not kernel_cond
+    if data_cond:
+        data = new_args[0].realize()
+    ret = _forward_op(ref_call, [data, kernel])
+    return QPartitionExpr(ret)
+
 
 def identity_partition_function(ref_call, new_args, ctx):
     cond, expr = partition_expr_check(new_args[0])

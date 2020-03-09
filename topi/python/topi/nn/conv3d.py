@@ -17,6 +17,7 @@
 # pylint: disable=invalid-name, unused-variable, too-many-locals
 # pylint: disable=unused-argument, redefined-builtin, no-else-return
 """Conv3D operators"""
+import tvm
 from tvm import te
 
 from .pad import pad
@@ -159,3 +160,25 @@ def conv3d_ndhwc(Input, Filter, stride, padding, dilation, out_dtype='float32'):
             Filter[rd, rh, rw, rc, cc].astype(out_dtype), axis=[rd, rh, rw, rc]),
         name="Conv3dOutput", tag="conv3d_ndhwc")
     return Output
+
+@tvm.target.generic_func
+def conv3d_legalize(attrs, inputs, types):
+    """Legalizes Conv2D op.
+
+    Parameters
+    ----------
+    attrs : tvm.ir.Attrs
+        Attributes of current convolution
+    inputs : list of tvm.relay.Expr
+        The args of the Relay expr to be legalized
+    types : list of types
+        List of input and output types
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The legalized expr
+    """
+    # not to change by default
+    return None
+
