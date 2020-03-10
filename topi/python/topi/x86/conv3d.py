@@ -24,6 +24,7 @@ from tvm import relay
 from tvm import te
 from tvm.autotvm.task.space import SplitEntity, OtherOptionEntity
 from .conv2d_int8 import is_int8_hw_support, _get_default_config_int8
+from .tensor_intrin import dot_16x1x16_uint8_int8_int32
 from ..util import traverse_inline
 from ..nn import conv3d_legalize
 from ..nn.util import get_pad_tuple3d, infer_pad3d
@@ -110,7 +111,10 @@ def conv3d_ncdhw(cfg, data, kernel, strides, padding, dilation, out_dtype):
     _create_tuning_space(cfg, data, kernel, strides, padding, dilation, layout)
     if cfg.is_fallback:
         _get_default_config(cfg, data, kernel, strides, padding, out_dtype, layout)
-    return _conv3d_ncdhw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype)
+    if is_int8_hw_support(data.dtype, kernel.dtype):
+        return _conv3d_ncdhw_int8(cfg, data, kernel, strides, padding, dilation, layout, out_dtype)
+    else:
+        return _conv3d_ncdhw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype)
 
 @autotvm.register_topi_schedule("conv3d_ndhwc.x86")
 def schedule_conv3d_ndhwc(cfg, outs):
@@ -185,7 +189,10 @@ def schedule_conv3d_ncdhw(cfg, outs):
 
             kd, kh, kw, i, o = get_const_tuple(kernel.shape)
             args = [s, cfg, data, data_pad, data_vec, kernel_vec, conv_out, output, outs[0]]
-            _schedule_conv3d_ncdhw(*args)
+            if is_int8_hw_support(data.dtype, kernel.dtype):
+                _schedule_conv3d_ncdhw_int8(*args, intrin=dot_16x1x16_uint8_int8_int32())
+            else:
+                _schedule_conv3d_ncdhw(*args)
 
     traverse_inline(s, outs[0].op, _traverse)
     return s
@@ -422,6 +429,100 @@ def _conv3d_ndhwc(cfg, data, kernel, strides, padding, dilation, out_dtype):
                                tag='conv3d_ndhwc')
     return conv_unpacked
 
+
+def _conv3d_ncdhw_int8(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
+    out_dtype = data.dtype if out_dtype is None else out_dtype
+
+    assert isinstance(dilation, int) or len(dilation) == 3
+    if isinstance(dilation, int):
+        dilation_d, dilation_h, dilation_w = (dilation, dilation, dilation)
+    else:
+        dilation_d, dilation_h, dilation_w = dilation
+
+    DSTR, HSTR, WSTR = strides
+    batch_size, in_channel, in_depth, in_height, in_width = get_const_tuple(data.shape)
+    num_filter, _, kernel_depth, kernel_height, kernel_width = get_const_tuple(kernel.shape)
+
+    dilated_kernel_d = (kernel_depth - 1) * dilation_d + 1
+    dilated_kernel_h = (kernel_height - 1) * dilation_h + 1
+    dilated_kernel_w = (kernel_width - 1) * dilation_w + 1
+
+    pad_front, pad_top, pad_left, pad_back, pad_down, pad_right = get_pad_tuple3d(
+        padding, (dilated_kernel_d, dilated_kernel_h, dilated_kernel_w))
+
+    pad_d = pad_front + pad_back
+    pad_h = pad_top + pad_down
+    pad_w = pad_left + pad_right
+
+    pad_depth = in_depth + pad_d
+    pad_height = in_height + pad_h
+    pad_width = in_width + pad_w
+
+    out_depth = simplify((in_depth + pad_d - dilated_kernel_d) // DSTR + 1)
+    out_height = simplify((in_height + pad_h - dilated_kernel_h) // HSTR + 1)
+    out_width = simplify((in_width + pad_w - dilated_kernel_w) // WSTR + 1)
+
+    # pack data
+    DOPAD = (pad_d != 0 or pad_h != 0 or pad_w != 0)
+    if DOPAD:
+        data_pad = pad(data, (0, 0, pad_front, pad_top, pad_left),
+                       (0, 0, pad_back, pad_down, pad_right), name="data_pad")
+    else:
+        data_pad = data
+
+    # fetch schedule
+    ic_bn, oc_bn = cfg["tile_ic"].size[-1], cfg["tile_oc"].size[-1]
+
+    shape = (batch_size, in_channel // ic_bn, pad_depth, pad_height, ic_bn, pad_width)
+    data_vec = te.compute(shape,
+                          lambda n, C, d, h, c, w: data_pad[n, C * ic_bn + c, d, h, w],
+                          name='data_vec')
+
+    # pack kernel
+    n_elems = 4
+    shape = (num_filter//oc_bn, in_channel//ic_bn,
+             kernel_depth, kernel_height, kernel_width, ic_bn//n_elems, oc_bn, n_elems)
+    kernel_vec = te.compute(shape,
+                            lambda CO, CI, d, h, w, ci, co, cib:
+                            kernel[CO * oc_bn + co, CI * ic_bn +
+                                   ci * ic_bn//n_elems + cib, d, h, w],
+                            name='kernel_vec')
+
+    # convolution
+    oshape = (batch_size, num_filter//oc_bn,
+              out_depth, out_height, out_width, oc_bn)
+    unpack_shape = (batch_size, num_filter, out_depth, out_height, out_width)
+
+    ic = te.reduce_axis((0, in_channel), name='ic')
+    kh = te.reduce_axis((0, kernel_height), name='kh')
+    kw = te.reduce_axis((0, kernel_width), name='kw')
+    kd = te.reduce_axis((0, kernel_depth), name='kd')
+    ic_outer = te.reduce_axis((0, in_channel//ic_bn), name='ic_outer')
+    ic_f_inner = te.reduce_axis((0, ic_bn//n_elems), name='ic_f_inner')
+    ic_s_inner = te.reduce_axis((0, n_elems), name='ic_s_inner')
+    idxmod = tvm.tir.indexmod
+    idxdiv = tvm.tir.indexdiv
+
+    conv = te.compute(oshape, lambda n, oc_chunk, od, oh, ow, oc_block:
+                      te.sum(data_vec[n,
+                                      ic_outer,
+                                      od * DSTR + kd * dilation_d,
+                                      oh * HSTR + kh * dilation_h,
+                                      ow * WSTR + kw * dilation_w,
+                                      ic_f_inner * n_elems + ic_s_inner].astype(out_dtype) *
+                             kernel_vec[oc_chunk, ic_outer, kd, kh, kw,
+                                        ic_f_inner,
+                                        oc_block, ic_s_inner].astype(out_dtype),
+                             axis=[kd, kh, kw, ic_outer, ic_f_inner, ic_s_inner]), name='conv')
+    conv_unpacked = te.compute(unpack_shape,
+                               lambda n, c, d, h, w: conv[n, idxdiv(c, oc_bn),
+                                                          d, h, w,
+                                                          idxmod(c, oc_bn)]
+                               .astype(out_dtype),
+                               name='output_unpack',
+                               tag='conv3d_ncdhw')
+    return conv_unpacked
+
 def _conv3d_ncdhw(cfg, data, kernel, strides, padding, dilation, layout, out_dtype):
     out_dtype = data.dtype if out_dtype is None else out_dtype
 
@@ -530,12 +631,19 @@ def _create_tuning_space(cfg, data, kernel, strides, padding, dilation, layout):
     od = (d - kd + pf + pb) // sd + 1
     oh = (h - kh + pt + pd) // sh + 1
     ow = (w - kw + pl + pr) // sw + 1
-
-    # Create schedule config
-    cfg.define_split("tile_ic", ic, num_outputs=2)
-    cfg.define_split("tile_oc", oc, num_outputs=2)
-    cfg.define_split("tile_ow", ow, num_outputs=2, filter=lambda y: y.size[-1] <= 8)
-    cfg.define_knob("unroll_kw", [True, False])
+    if is_int8_hw_support(data.dtype, kernel.dtype):
+        cfg.define_split('tile_ic', ic, num_outputs=2,
+                         filter=lambda y: y.size[-1] % 4 == 0)
+        cfg.define_split('tile_oc', oc, num_outputs=2,
+                         filter=lambda y: y.size[-1] % 16 == 0)
+        cfg.define_split("tile_ow", ow, num_outputs=2, filter=lambda y: y.size[-1] <= 64)
+        cfg.define_knob("unroll_kw", [True, False])
+    else:
+        # Create schedule config
+        cfg.define_split("tile_ic", ic, num_outputs=2)
+        cfg.define_split("tile_oc", oc, num_outputs=2)
+        cfg.define_split("tile_ow", ow, num_outputs=2, filter=lambda y: y.size[-1] <= 8)
+        cfg.define_knob("unroll_kw", [True, False])
 
 def _get_default_config(cfg, data, kernel, strides, padding, out_dtype, layout):
     """
@@ -733,6 +841,82 @@ def _schedule_conv3d_ncdhw(s, cfg, data, data_pad, data_vec, kernel_vec, conv_ou
 
     s[CC].fuse(oc_chunk, od, oh)
     s[CC].vectorize(oc_block)
+    s[CC].unroll(ow_block)
+
+    if O0 != O:
+        s[O0].compute_inline()
+
+    # unpacking
+    batch, oc, od, oh, ow = s[O].op.axis
+    ow_chunk, ow_block = s[O].split(ow, factor=reg_n)
+    oc_chunk, oc_block = s[O].split(oc, factor=oc_bn)
+    s[O].reorder(oc_chunk, od, oh, ow_chunk, ow_block, oc_block)
+    parallel_axis = s[O].fuse(batch, oc_chunk, od, oh)
+    s[C].compute_at(s[O], parallel_axis)
+    s[O].vectorize(oc_block)
+    s[O].parallel(parallel_axis)
+
+    return s
+
+
+def _schedule_conv3d_ncdhw_int8(s, cfg, data, data_pad, data_vec, kernel_vec, conv_out, output, last, int32_lanes=16, intrin=None):
+    # fetch schedule
+    ic_bn, oc_bn, reg_n, unroll_kw = (cfg["tile_ic"].size[-1], cfg["tile_oc"].size[-1],
+                                      cfg["tile_ow"].size[-1], cfg["unroll_kw"].val)
+
+    # get padding size
+    padding = infer_pad3d(data, data_pad, "NCDHW")
+    DPAD, HPAD, WPAD = padding
+    DOPAD = (DPAD != 0 or HPAD != 0 or WPAD != 0)
+
+    A, W = data, kernel_vec
+    A0, A1 = data_pad, data_vec
+
+    # schedule data
+    if DOPAD:
+        s[A0].compute_inline()
+    batch, ic_chunk, idd, ih, ic_block, iw = s[A1].op.axis
+    parallel_axis = s[A1].fuse(batch, ic_chunk, idd, ih)
+    s[A1].parallel(parallel_axis)
+
+    # schedule kernel pack
+    oc_chunk, ic_chunk, od, oh, ow, ic_block, oc_block, n_elems = s[W].op.axis
+    s[W].reorder(oc_chunk, od, oh, ic_chunk, ow, ic_block, oc_block, n_elems)
+    parallel_axis = s[W].fuse(oc_chunk, od, oh)
+    s[W].parallel(parallel_axis)
+
+    # schedule conv
+    C, O0, O = conv_out, output, last
+    CC = s.cache_write(C, 'global')
+
+    _, oc_chunk, od, oh, ow, oc_block = s[C].op.axis
+    ow_chunk, ow_block = s[C].split(ow, factor=reg_n)
+    s[C].reorder(oc_chunk, od, oh, ow_chunk, ow_block, oc_block)
+    s[C].vectorize(oc_block)
+
+    parallel_axis = s[C].fuse(oc_chunk, od, oh)
+    
+    s[CC].compute_at(s[C], parallel_axis)
+    if C == O:
+        s[C].parallel(parallel_axis)
+
+    _, oc_chunk, od, oh, ow, oc_block = s[CC].op.axis
+    kd, kh, kw, ic_outer, ic_f_inner, ic_s_inner = s[CC].op.reduce_axis
+
+    assert oc_bn % int32_lanes == 0
+    assert ic_bn % 4 == 0  # 4 (u)int8 elements in (u)int32
+
+    oc_f_inner, oc_s_inner = s[CC].split(oc_block, factor=int32_lanes)
+    
+    ow_chunk, ow_block = s[CC].split(ow, factor=reg_n)
+
+    s[CC].reorder(oc_chunk, od, oh, ow_chunk, kh, kw, ic_outer, ic_f_inner,
+                  ow_block, oc_f_inner, oc_s_inner, ic_s_inner)
+    s[CC].fuse(oc_chunk, od, oh)
+    if unroll_kw:
+        s[CC].unroll(kw)
+    if intrin is not None:
+        s[CC].tensorize(oc_s_inner, intrin)
     s[CC].unroll(ow_block)
 
     if O0 != O:
