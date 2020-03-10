@@ -420,6 +420,8 @@ Expr AddRealize(const Call& ref_call,
 
 RELAY_REGISTER_OP("add")
 .set_attr<FForwardRewrite>("FQRealizeRewrite", AddRealize);
+RELAY_REGISTER_OP("nn.bias_add")
+.set_attr<FForwardRewrite>("FQRealizeRewrite", AddRealize);
 
 Expr ClipRealize(const Call& ref_call,
                  const Array<Expr>& new_args,

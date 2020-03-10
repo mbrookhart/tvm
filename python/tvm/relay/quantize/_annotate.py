@@ -241,7 +241,6 @@ def multiply_rewrite(ref_call, new_args, ctx):
 
     raise ValueError
 
-
 @register_annotate_function("add")
 def add_rewrite(ref_call, new_args, ctx):
     """Rewrite function for add."""
@@ -285,6 +284,7 @@ def add_rewrite(ref_call, new_args, ctx):
             return QAnnotateExpr(expr, QAnnotateKind.ACTIVATION)
     raise ValueError()
 
+register_annotate_function("nn.bias_add", add_rewrite)
 
 def identity_rewrite(ref_call, new_args, ctx):
     """Simply forward the original operation"""

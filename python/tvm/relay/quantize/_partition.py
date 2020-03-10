@@ -149,6 +149,7 @@ def add_partition_function(ref_call, new_args, ctx):
         return add_partition_generic(ref_call, new_args, ctx)
     return add_partition_generic(ref_call, new_args, ctx)
 
+register_partition_function("nn.bias_add", add_partition_function)
 
 @register_partition_function("multiply")
 def multiply_partition_function(ref_call, new_args, ctx):
