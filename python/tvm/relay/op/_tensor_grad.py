@@ -514,6 +514,12 @@ def reshape_grad(orig, grad):
     return [reshape_like(grad, orig.args[0])]
 
 
+@register_gradient("dyn.reshape")
+def dyn_reshape_grad(orig, grad):
+    """Gradient of dyn_reshape"""
+    return [reshape_like(grad, orig.args[0]), zeros_like(orig.args[1])]
+
+
 @register_gradient("cast")
 def cast_grad(orig, grad):
     x = orig.args[0]
