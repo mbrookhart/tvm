@@ -46,15 +46,16 @@ def get_input_data_shape_dict(graph_def, input_data):
 
 def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None):
     """ Generic function to execute and get tvm output with vm executor"""
-
-    _, shape_dict = get_input_data_shape_dict(graph_def, input_data)
+    if not isinstance(input_data, list):
+        input_data = [input_data]
+    input_names, shape_dict = get_input_data_shape_dict(graph_def, input_data)
 
     mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset)
-
     ex = relay.create_executor('vm', mod=mod, ctx=ctx, target=target)
-    indata = tvm.nd.array(input_data)
-    result = ex.evaluate()(indata)
-    return result.asnumpy()
+    result = ex.evaluate()(*input_data)
+    if isinstance(result, tvm.runtime.NDArray):
+        return result.asnumpy()
+    return [r.asnumpy() for r in result]
 
 
 def get_tvm_output(graph_def, input_data, target, ctx, output_shape=None, output_dtype='float32', opset=None):
@@ -1331,21 +1332,19 @@ def verify_constantofshape(input_dim, value, dtype):
         outputs=[
             helper.make_tensor_value_info("output", TensorProto.FLOAT,
                                           list(out.shape))
-        ],
-        initializer=[
-            helper.make_tensor("input", TensorProto.INT32, (len(input_dim), ),
-                               input_dim)
         ])
 
     model = helper.make_model(graph, producer_name='fill_test')
 
     for target, ctx in tvm.testing.enabled_targets():
-        tvm_out = get_tvm_output(model, [], target, ctx, out.shape)
+        input_np = np.array(input_dim).astype("float32")
+        tvm_out = get_tvm_output_with_vm(model, [input_np], target, ctx)
 
         tvm.testing.assert_allclose(out, tvm_out, rtol=1e-5, atol=1e-5)
 
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_constantofshape():
     verify_constantofshape((2, 3, 4, 5), 10, 'float32')
     verify_constantofshape((3, 3), 0, 'int32')
@@ -1972,24 +1971,19 @@ def verify_tile_v6(indata, repeats, outdata):
         outputs=[
             helper.make_tensor_value_info("out", TensorProto.FLOAT,
                                           list(outdata.shape))
-        ],
-        initializer=[
-            helper.make_tensor("repeats", TensorProto.INT64,
-                               list(repeats.shape), repeats)
         ])
 
     model = helper.make_model(graph, producer_name='tile_test')
 
     for target, ctx in tvm.testing.enabled_targets():
-        tvm_out = get_tvm_output(model, [indata],
+        tvm_out = get_tvm_output_with_vm(model, [indata, repeats],
                                  target,
                                  ctx,
-                                 outdata.shape,
                                  opset=6)
         tvm.testing.assert_allclose(outdata, tvm_out)
 
-
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_tile():
     x = np.random.rand(2, 3, 4, 5).astype(np.float32)
     repeats = np.random.randint(
@@ -2160,9 +2154,11 @@ def test_batch_norm():
     verify_batch_norm([16, 16, 10, 10])
 
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_batch_norm_dynamic_subgraph():
     def verify_batch_norm_dynamic_subgraph(in_shape, o_shape):
+
         batchnorm = onnx.helper.make_node('BatchNormalization',
                                           inputs=["x", "scale", "B", "mean", "var"],
                                           outputs=['Y'])
@@ -2197,7 +2193,7 @@ def test_batch_norm_dynamic_subgraph():
             mean = np.random.uniform(size=in_shape[1]).astype('float32')
             var = np.random.uniform(size=in_shape[1]).astype('float32')
             onnx_out = get_onnxruntime_output(model, [x, inp, scale, b, mean, var], 'float32')[0]
-            tvm_out = get_tvm_output(model, [x, inp, scale, b, mean, var], target, ctx, in_shape, 'float32')
+            tvm_out = get_tvm_output_with_vm(model, [x, inp, scale, b, mean, var], target, ctx)
             tvm.testing.assert_allclose(onnx_out, tvm_out, rtol=1e-5, atol=1e-5)
 
     verify_batch_norm_dynamic_subgraph([16, 16, 10, 10], [160, 160])
@@ -3109,18 +3105,16 @@ def test_topk():
                                   "topk_test",
                                   inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, list(input_dims)),
                                           helper.make_tensor_value_info("K", TensorProto.INT64, [1,])],
-                                  initializer=[helper.make_tensor("K", TensorProto.INT64, [1], [K])],
                                   outputs=[helper.make_tensor_value_info("Values", TensorProto.FLOAT, output_dims),
                                            helper.make_tensor_value_info("Indicies", TensorProto.INT64, output_dims)])
 
         model = helper.make_model(graph, producer_name='topk_test')
 
         indata = np.random.uniform(-10, 10, input_dims).astype(np.float32)
-        onnx_out = get_onnxruntime_output(model, [indata, k])
+        onnx_out = get_onnxruntime_output(model, [indata, np.array([K])])
 
         for target, ctx in [('llvm', tvm.cpu())]:
-            tvm_out = get_tvm_output(model, indata, target, ctx, [output_dims, output_dims],
-                    output_dtype=['float32', 'int64'])
+            tvm_out = get_tvm_output_with_vm(model, [indata, np.array(K)], target, ctx)
             tvm.testing.assert_allclose(onnx_out, tvm_out, rtol=1e-05, atol=1e-05)
 
     for n in [12, 32]:
