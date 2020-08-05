@@ -192,7 +192,7 @@ Expr DynamicToStatic(Function f, IRModule m) {
 
 namespace transform {
 
-Pass ConvertDynamicToStatic() {
+Pass DynamicToStatic() {
   runtime::TypedPackedFunc<Function(Function, IRModule, PassContext)> pass_func =
       [=](Function f, IRModule m, PassContext pc) {
         return Downcast<Function>(DynamicToStatic(f, m));
@@ -201,7 +201,7 @@ Pass ConvertDynamicToStatic() {
 }
 
 TVM_REGISTER_GLOBAL("relay._transform.DynamicToStatic").set_body_typed([]() {
-  return ConvertDynamicToStatic();
+  return DynamicToStatic();
 });
 
 }  // namespace transform
