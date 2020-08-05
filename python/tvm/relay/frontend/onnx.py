@@ -37,19 +37,9 @@ from ..adt import Match, Clause
 
 from .common import AttrCvt, Renamer
 from .common import get_relay_op, new_var, infer_shape, infer_channels
-from .common import infer_type, get_name
-from .common import infer_value as _infer_value
-from .common import infer_value_simulated as _infer_value_simulated
+from .common import infer_type, get_name, infer_value, infer_value_simulated
 
 __all__ = ['from_onnx']
-
-g = None
-
-def infer_value(input_val, params, mod=None):
-    return g.infer_value(input_val, params, mod)
-
-def infer_value_simulated(input_val, params):
-    return g.infer_value_simulated(input_val, params)
 
 class onnx_input():
     """ Dual purpose list or dictionary access object."""
@@ -747,10 +737,7 @@ class Reshape(OnnxOpConverter):
             shape = tuple(params.pop(inputs[1].name_hint).asnumpy().astype("int32"))
             out = _op.reshape(inputs[0], shape)
         else:
-            data, shape = inputs
-            static_shape = infer_value_simulated(shape, params)
-            out = _op.reshape(data, newshape=tuple(
-                static_shape.asnumpy().astype('int32')))
+            out = _op.reshape(*inputs)
         return out
 
 
@@ -1357,9 +1344,8 @@ class ConstantOfShape(OnnxOpConverter):
         else:
             value = _expr.const(0)
             dtype = 'float32'
-        static_shape = infer_value_simulated(inputs[0], params)
         output = _op.full(
-            value, shape=tuple(static_shape.asnumpy().astype('int32')), dtype=dtype)
+            value, inputs[0], dtype=dtype)
         return output
 
 
@@ -1405,9 +1391,7 @@ class Tile(Elemwise):
 
     @classmethod
     def _impl_v6(cls, inputs, attr, params):
-        reps = tuple(infer_value_simulated(
-            inputs[1], params).asnumpy().astype('int32'))
-        return _op.tile(inputs[0], reps)
+        return _op.tile(inputs[0], inputs[1])
 
 class Erf(OnnxOpConverter):
     """Operator converter for Erf
@@ -1834,9 +1818,7 @@ class TopK(OnnxOpConverter):
         if largest == 0:
             raise ValueError("TVM only supports finding TopK largest elements")
 
-        K = int(infer_value(inputs[1], params).asnumpy()[0])
-
-        return _op.topk(inputs[0], k=K, axis=axis)
+        return _op.topk(inputs[0], inputs[1], axis=axis)
 
 
 class MaxRoiPool(OnnxOpConverter):
@@ -2044,7 +2026,7 @@ def _get_convert_map(opset):
         'NonZero': NonZero.get_converter(opset),
     }
 
-class GraphProto(ExprFunctor):
+class GraphProto():
     """A helper class for handling Relay expression copying from pb2.GraphProto.
     Definition: https://github.com/onnx/onnx/blob/master/onnx/onnx.proto
 
@@ -2060,107 +2042,12 @@ class GraphProto(ExprFunctor):
     def __init__(self, shape, dtype):
         self._nodes = {}
         self._params = {}
+        self._inputs = []
         self._renames = {}
         self._num_input = 0
         self._num_param = 0
         self._shape = shape if shape else {}
         self._dtype = dtype
-
-        #For infering Values
-        self._tmp_params = {}
-        self._infer_simulated = True
-        self._mod = None
-        super(GraphProto, self).__init__()
-
-    def infer_value(self, input_val, params, mod=None):
-        self._tmp_params = params
-        self._infer_simulated = False
-        self._mod = mod
-        return self.visit(input_val).data
-
-    def infer_value_simulated(self, input_val, params):
-        self._tmp_params = params
-        self._infer_simulated = True
-        return self.visit(input_val).data
-
-    def infer(self, expr):
-        if self._infer_simulated:
-            out = _infer_value_simulated(expr, self._tmp_params)
-        else:
-            out = _infer_value(expr, self._tmp_params)
-        return _expr.const(out.asnumpy())
-
-    def visit_function(self, fn):
-        new_params = [self.visit(x) for x in fn.params]
-        new_body = self.visit(fn.body)
-        return self.infer(Function(
-            list(new_params),
-            new_body,
-            fn.ret_type,
-            fn.type_params,
-            fn.attrs))
-
-    def visit_let(self, let):
-        newvar = self.visit(let.var)
-        newval = self.visit(let.value)
-        newbody = self.visit(let.body)
-        return self.infer(Let(newvar, newval, newbody))
-
-    def visit_call(self, call):
-        new_fn = self.visit(call.op)
-        new_args = [self.visit(arg) for arg in call.args]
-        call = Call(new_fn, new_args, call.attrs)
-        if new_fn == _op.get("nn.batch_norm"):
-            return call
-        return self.infer(call)
-
-    def visit_var(self, var):
-        return self.infer(var)
-
-    def visit_global_id(self, global_var):
-        return self.infer(global_var)
-
-    def visit_if(self, ite):
-        return self.infer(If(
-            self.visit(ite.cond),
-            self.visit(ite.true_branch),
-            self.visit(ite.false_branch)))
-
-    def visit_tuple(self, tup):
-        return Tuple([self.visit(field) for field in tup.fields])
-
-    def visit_tuple_getitem(self, op):
-        tuple_value = self.visit(op.tuple_value)
-        if not tuple_value.same_as(op.tuple_value):
-            return self.infer(TupleGetItem(tuple_value, op.index))
-        return self.infer(op)
-
-    def visit_global_var(self, gvar):
-        return self.infer(gvar)
-
-    def visit_op(self, op):
-        return op
-
-    def visit_constant(self, const):
-        return const
-
-    def visit_constructor(self, con):
-        return con
-
-    def visit_match(self, m):
-        return self.infer(Match(
-            self.visit(m.data),
-            [Clause(c.lhs, self.visit(c.rhs)) for c in m.clauses],
-            complete=m.complete))
-
-    def visit_ref_create(self, r):
-        return RefCreate(self.visit(r.value))
-
-    def visit_ref_write(self, r):
-        return RefWrite(self.visit(r.ref), self.visit(r.value))
-
-    def visit_ref_read(self, r):
-        return RefRead(self.visit(r.ref))
 
     def from_onnx(self, graph, opset):
         """Construct Relay expression from ONNX graph.
@@ -2218,6 +2105,7 @@ class GraphProto(ExprFunctor):
                 else:
                     dtype = d_type
                 self._nodes[i_name] = new_var(i_name, shape=tshape, dtype=dtype)
+            self._inputs.append(self._nodes[i_name])
         # get list of unsupported ops
         convert_map = _get_convert_map(opset)
         unsupported_ops = set()
@@ -2273,7 +2161,9 @@ class GraphProto(ExprFunctor):
         # now return the outputs
         outputs = [self._nodes[self._parse_value_proto(i)] for i in graph.output]
         outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
-        func = _function.Function(analysis.free_vars(outputs), outputs)
+
+        #func = _function.Function(analysis.free_vars(outputs), outputs)
+        func = _function.Function(self._inputs, outputs)
         return IRModule.from_expr(func), self._params
 
     def _parse_value_proto(self, value_proto):
@@ -2420,7 +2310,6 @@ def from_onnx(model,
                 warnings.warn(str(e))
     except ImportError:
         pass
-    global g
     g = GraphProto(shape, dtype)
     graph = model.graph
     if opset is None:
@@ -2429,5 +2318,4 @@ def from_onnx(model,
         except AttributeError:
             opset = 1
     mod, params = g.from_onnx(graph, opset)
-    g = None
     return mod, params
