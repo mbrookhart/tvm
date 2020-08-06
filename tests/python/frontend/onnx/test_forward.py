@@ -690,7 +690,7 @@ def test_onehot():
     indices_array = np.random.randint(
         low=0, high=9, size=indices_shape, dtype='int32')
     depth = 10
-    values = np.asarray([0, 1])
+    values = np.asarray([0, 1]).astype("int32")
     out_np = np.eye(depth)[indices_array.reshape(-1)]
 
     onehot_node = helper.make_node(
@@ -704,15 +704,13 @@ def test_onehot():
                                                                     TensorProto.INT32, [1]),
                                       helper.make_tensor_value_info("values",
                                                                     TensorProto.INT32, values.shape)],
-                              initializer=[helper.make_tensor("depth", TensorProto.INT32, [1], [depth]),
-                                           helper.make_tensor("values", TensorProto.INT32, values.shape, values)],
                               outputs=[helper.make_tensor_value_info("out", TensorProto.INT32, out_np.shape)])
 
     model = helper.make_model(graph, producer_name="onehot_test")
 
     for target, ctx in ctx_list():
-        tvm_out = get_tvm_output(
-            model, [indices_array], target, ctx, out_np.shape)
+        tvm_out = get_tvm_output_with_vm(
+            model, [indices_array, np.array([depth]).astype("int32"), values], target, ctx)
         tvm.testing.assert_allclose(out_np, tvm_out, rtol=1e-5, atol=1e-5)
 
 
