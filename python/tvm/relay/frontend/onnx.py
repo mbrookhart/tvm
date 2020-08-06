@@ -1319,8 +1319,6 @@ class OneHot(OnnxOpConverter):
             values, _op.const(0)), _op.take(values, _op.const(1))
         # Extract the datatype of the output from on_value.
         dtype = infer_type(on_value).checked_type.dtype
-        # Convert depth into an integer.
-        depth = int(infer_value(depth, params).asnumpy()[0])
         # set default value when axis is not set in the model
         if 'axis' not in attr:
             attr['axis'] = -1
@@ -2162,7 +2160,6 @@ class GraphProto():
         outputs = [self._nodes[self._parse_value_proto(i)] for i in graph.output]
         outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
 
-        #func = _function.Function(analysis.free_vars(outputs), outputs)
         func = _function.Function(self._inputs, outputs)
         return IRModule.from_expr(func), self._params
 
