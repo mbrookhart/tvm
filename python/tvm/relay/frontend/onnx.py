@@ -489,25 +489,30 @@ class MatMul(OnnxOpConverter):
     def _impl_v1(cls, inputs, attr, params):
         assert len(inputs) == 2, "MatMul op take 2 inputs, {} given".format(len(inputs))
         # Need to check input shape as batch matmul must be supported.
-        a_shape = infer_shape(inputs[0])
+        a_shape = _op.shape_of(inputs[0])
         # When performing a batch matmul, we need to properly handle N-dim shapes.
-        if len(a_shape) > 2:
-            b_shape = infer_shape(inputs[1])
+        if infer_shape(a_shape)[0] > 2:
+            b_shape = _op.shape_of(inputs[1])
+            def flatten_to_3d(x, x_shape):
+                ndims = infer_shape(x_shape)[0]
+                newshape = _op.concatenate([_expr.const([-1]), _op.strided_slice(x_shape, [ndims - 2], [ndims])], 0)
+                out = _op.reshape(x, newshape)
+                return out
             # Convert a and b into 3 dimensional tensors.
-            a = _op.reshape(inputs[0], [-1, a_shape[-2], a_shape[-1]])
-            b = _op.reshape(inputs[1], [-1, b_shape[-2], b_shape[-1]])
+            a = flatten_to_3d(inputs[0], a_shape)
+            b = flatten_to_3d(inputs[1], b_shape)
             # Broadcast b to match batch size of a
-            new_b_shape = list(infer_shape(b))
-            new_a_shape = infer_shape(a)
-            if new_a_shape[0] > new_b_shape[0]:
-                new_b_shape[0] = new_a_shape[0]
-                b = _op.broadcast_to(b, new_b_shape)
+            new_b_shape = _op.concatenate([_op.strided_slice(_op.shape_of(a), [0], [1]),
+                                           _op.strided_slice(_op.shape_of(b), [1], [3])], 0)
+            b = _op.broadcast_to(b, new_b_shape)
             # Transpose matrix dimensions of b.
             b = _op.transpose(b, [0, 2, 1])
             # Perform a batch matmul.
             output = _op.nn.batch_matmul(a, b)
             # Reshape output to original dimensions.
-            return _op.reshape(output, [*a_shape[:-2], a_shape[-2], b_shape[-1]])
+            final_shape = _op.concatenate([_op.strided_slice(a_shape, [0], [infer_shape(a_shape)[0] - 1]), 
+                                           _op.strided_slice(b_shape, [infer_shape(b_shape)[0] - 1], [infer_shape(b_shape)[0]])], 0)
+            return _op.reshape(output, final_shape)
         # Otherwise a simple dense op will get the job done.
         input_1_t = _op.transpose(inputs[1], axes=(1, 0))
         return _op.nn.dense(inputs[0], input_1_t)
