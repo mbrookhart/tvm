@@ -55,7 +55,9 @@ inline tvm::te::Tensor broadcast_to(const tvm::te::Tensor& t,
   auto bh = detail::BroadcastShape(output_shape, t->shape);
   CHECK_EQ(output_shape.size(), bh.common_shape.size());
   for (size_t i = 0; i < output_shape.size(); ++i) {
-    CHECK(topi::detail::EqualCheck(output_shape[i], bh.common_shape[i]));
+    if (!output_shape[i].as<tir::AnyNode>()) {
+      //CHECK(topi::detail::EqualCheck(output_shape[i], bh.common_shape[i]));
+    }
   }
   auto l = [&](tvm::Array<tvm::tir::Var> ovars) {
     return t(detail::InputIndexFromBroadcast(ovars, t, bh.vars2, bh.all_vars));
