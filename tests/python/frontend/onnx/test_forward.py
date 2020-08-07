@@ -759,8 +759,8 @@ def verify_batch_matmul(a_shape, b_shape):
     model = helper.make_model(graph, producer_name='matmul_test')
 
     for target, ctx in ctx_list():
-        tvm_out = get_tvm_output(
-            model, [a_array, b_array], target, ctx, out_np.shape)
+        tvm_out = get_tvm_output_with_vm(
+            model, [a_array, b_array], target, ctx)
         tvm.testing.assert_allclose(out_np, tvm_out, rtol=1e-5, atol=1e-5)
 
 def test_batch_matmul():
