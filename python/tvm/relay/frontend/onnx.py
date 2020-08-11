@@ -2049,7 +2049,15 @@ class GraphProto():
         self._shape = shape if shape else {}
         self._dtype = dtype
 
-    def from_onnx(self, graph, opset):
+    def freeze(self, func, params):
+        bind_map = {}
+        for name in params.keys():
+            bind_map[self._nodes[name]] = _expr.const(params[name])
+        body = _expr.bind(func.body, bind_map)
+        fn = _function.Function(analysis.free_vars(body), body)
+        return fn, {}
+
+    def from_onnx(self, graph, opset, freeze_params=False):
         """Construct Relay expression from ONNX graph.
 
         Onnx graph is a python protobuf object.
@@ -2163,6 +2171,9 @@ class GraphProto():
         outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
 
         func = _function.Function(self._inputs, outputs)
+        if freeze_params:
+            func, params = self.freeze(func, self._params)
+            return IRModule.from_expr(func), params
         return IRModule.from_expr(func), self._params
 
     def _parse_value_proto(self, value_proto):
@@ -2261,10 +2272,12 @@ class GraphProto():
             outputs = outputs[:-1]
         return outputs
 
+
 def from_onnx(model,
               shape=None,
               dtype="float32",
-              opset=None):
+              opset=None,
+              freeze_params=False):
     """Convert a ONNX model into an equivalent Relay Function.
 
     ONNX graphs are represented as Python Protobuf objects.
@@ -2316,5 +2329,7 @@ def from_onnx(model,
             opset = model.opset_import[0].version if model.opset_import else 1
         except AttributeError:
             opset = 1
-    mod, params = g.from_onnx(graph, opset)
+    mod, params = g.from_onnx(graph, opset, freeze_params)
     return mod, params
+
+
