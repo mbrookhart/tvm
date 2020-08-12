@@ -220,7 +220,7 @@ Expr DynamicToStatic(Function f, IRModule m) {
     expr = mutator.Mutate(m->functions[gv]);
     m->Update(gv, Downcast<BaseFunc>(expr));
     i += 1;
-  } while (pre != expr && i < 1000);
+  } while (!StructuralEqual()(pre, expr) && i < 1000);
   return expr;
 }
 
