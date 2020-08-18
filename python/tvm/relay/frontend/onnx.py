@@ -1771,14 +1771,14 @@ class Resize(OnnxOpConverter):
             raise tvm.error.OpAttributeInvalid(
                 'Value {} in attribute "mode" of operator Resize is not valid.'.format(mode))
 
-        in_size = np.array(infer_shape(inputs[0]))
-        scale = infer_value_simulated(inputs[2], params).asnumpy()
+        scale = inputs[2]
+        scale_shape = infer_shape(scale)
         if len(inputs) == 4:
-            assert len(scale) == 0, "One of scale or size should be passed, not both."
-            size = infer_value_simulated(inputs[3], params).asnumpy().astype(np.int32)
+            assert len(scale_shape) == 0 or scale_shape[0] == 0, "One of scale or size should be passed, not both."
+            size = inputs[3]
         else:
-            assert len(scale) != 0, "One of scale or size should be passed."
-            size = (in_size * scale).astype(np.int32)
+            assert len(scale_shape) != 0, "One of scale or size should be passed."
+            size = _op.cast(_op.shape_of(inputs[0]), infer_type(scale).type_annotation.dtype) * scale
 
         coord_trans = attr.get('coordinate_transformation_mode')
         if coord_trans in [b'pytorch_half_pixel', b'half_pixel']:
@@ -1791,7 +1791,7 @@ class Resize(OnnxOpConverter):
             raise tvm.error.OpAttributeInvalid(
                 'Unsupported coordinate_transformation_mode: {}'.format(coord_trans))
         layout = "NCHW"  # ONNX assumes NCHW layout
-        out_size = (size[2], size[3])
+        out_size = _op.strided_slice(size, [2], [4])
         return _op.image.resize(inputs[0], out_size, layout, method, coord_trans)
 
 

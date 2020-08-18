@@ -44,13 +44,14 @@ def get_input_data_shape_dict(graph_def, input_data):
     return input_names, shape_dict
 
 
-def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None):
+def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None, freeze_params=False):
     """ Generic function to execute and get tvm output with vm executor"""
     if not isinstance(input_data, list):
         input_data = [input_data]
     input_names, shape_dict = get_input_data_shape_dict(graph_def, input_data)
 
-    mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset)
+    mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset, freeze_params=freeze_params)
+
     ex = relay.create_executor('vm', mod=mod, ctx=ctx, target=target)
     result = ex.evaluate()(*input_data)
     if isinstance(result, tvm.runtime.NDArray):
@@ -3003,7 +3004,8 @@ def test_gru():
         rnn_type='GRU')
 
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_resize():
     def make_constant_node(name, data_type, dims, vals):
         return helper.make_node('Constant',
@@ -3033,7 +3035,6 @@ def test_resize():
 
         if oshape == []:
             oshape = [round(dim * scale) for (dim, scale) in zip(ishape, scales)]
-
         graph = helper.make_graph(nodes,
                                   "resize_test",
                                   inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, ishape)],
@@ -3044,7 +3045,7 @@ def test_resize():
         for target, ctx in tvm.testing.enabled_targets():
             x = np.random.uniform(size=ishape).astype('float32')
             onnx_out = get_onnxruntime_output(model, x, 'float32')
-            tvm_out = get_tvm_output(model, x, target, ctx, oshape, 'float32', opset=11)
+            tvm_out = get_tvm_output_with_vm(model, x, target, ctx, opset=11, freeze_params=True)
 
             tvm.testing.assert_allclose(onnx_out, tvm_out, rtol=1e-05, atol=1e-05)
 
