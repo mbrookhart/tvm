@@ -177,7 +177,9 @@ def test_expand():
         model = helper.make_model(graph, producer_name=name)
 
         for target, ctx in ctx_list():
-            tvm_out = get_tvm_output(model, data, target, ctx, ref_data.shape, 'float32')
+            ##TODO(mbrookhart): remove when VM supports heterogenous execution
+            if "cuda" in target: continue
+            tvm_out = get_tvm_output_with_vm(model, data, target, ctx, freeze_params=True)
 
         tvm.testing.assert_allclose(ref_data, tvm_out)
 
