@@ -1450,11 +1450,8 @@ class Expand(OnnxOpConverter):
     """
     @classmethod
     def _impl_v8(cls, inputs, attr, params):
-        in_shape = np.array(infer_shape(inputs[0])).astype('int32')
-        if get_name(inputs[1]) in params:
-            shape = params[inputs[1].name_hint].asnumpy().astype('int32')
-        else:
-            shape = infer_value_simulated(inputs[1], params).asnumpy().astype('int32')
+        in_shape = _op.shape_of(inputs[0])
+        shape = inputs[1]
 
         # Currently 'op.broadcast_to' expect the rank of the given 'shape'
         # (the 2nd input) is always higher than that of the given 'input' (the 1st input)
@@ -1469,28 +1466,17 @@ class Expand(OnnxOpConverter):
             intput. Also it replaces the extent of the shape with the corresponding extent
             of the intput when it is 1.
             """
-
-            # here we flip the shapes because this can be more simply written
-            # when the innermost dimension is located at the index 0.
-            in_shape = np.flip(in_shape, axis=0)
-            shape = np.flip(shape, axis=0)
-
-            if in_shape.size < shape.size:
-                for i in range(shape.size):
-                    if i < in_shape.size and in_shape[i] > shape[i]:
-                        shape[i] = in_shape[i]
-            else:
-                for i in range(in_shape.size):
-                    if i >= shape.size:
-                        np.append(shape, in_shape[i])
-                    elif shape[i] == 1:
-                        shape[i] = in_shape[i]
-
-            new_shape = np.flip(shape, axis=0)
+            in_dims = infer_shape(in_shape)[0]
+            new_dims = infer_shape(shape)[0]
+            if in_dims < new_dims:
+                in_shape = _op.concatenate([_expr.const([1, ] * (new_dims - in_dims)), in_shape], axis=0)
+            elif new_dims > in_dims:
+                shape = _op.concatenate([_expr.const([1, ] * (in_dims - new_dims)), shape], axis=0)
+            new_shape = _op.maximum(in_shape, shape)
             return new_shape
 
         shape = expand_shape(in_shape, shape)
-        return _op.broadcast_to(inputs[0], shape=tuple(shape))
+        return _op.broadcast_to(inputs[0], shape=shape)
 
 
 class RNN(OnnxOpConverter):
