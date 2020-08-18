@@ -155,7 +155,8 @@ def test_reshape():
     tvm.testing.assert_allclose(ref_shape, tvm_out.shape)
 
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_expand():
 
     def _test_expand(name, data, shape, ref_data):
@@ -179,7 +180,7 @@ def test_expand():
         model = helper.make_model(graph, producer_name=name)
 
         for target, ctx in tvm.testing.enabled_targets():
-            tvm_out = get_tvm_output(model, data, target, ctx, ref_data.shape, 'float32')
+            tvm_out = get_tvm_output_with_vm(model, data, target, ctx, freeze_params=True)
 
         tvm.testing.assert_allclose(ref_data, tvm_out)
 
