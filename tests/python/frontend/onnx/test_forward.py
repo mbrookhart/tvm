@@ -44,13 +44,14 @@ def get_input_data_shape_dict(graph_def, input_data):
     return input_names, shape_dict
 
 
-def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None):
+def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None, freeze_params=False):
     """ Generic function to execute and get tvm output with vm executor"""
     if not isinstance(input_data, list):
         input_data = [input_data]
     input_names, shape_dict = get_input_data_shape_dict(graph_def, input_data)
 
-    mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset)
+    mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset, freeze_params=freeze_params)
+
     ex = relay.create_executor('vm', mod=mod, ctx=ctx, target=target)
     result = ex.evaluate()(*input_data)
     if isinstance(result, tvm.runtime.NDArray):
@@ -709,6 +710,8 @@ def test_onehot():
     model = helper.make_model(graph, producer_name="onehot_test")
 
     for target, ctx in ctx_list():
+        ##TODO(mbrookhart): remove when VM supports heterogenous execution
+        if "cuda" in target: continue
         tvm_out = get_tvm_output_with_vm(
             model, [indices_array, np.array([depth]).astype("int32"), values], target, ctx)
         tvm.testing.assert_allclose(out_np, tvm_out, rtol=1e-5, atol=1e-5)
@@ -759,6 +762,8 @@ def verify_batch_matmul(a_shape, b_shape):
     model = helper.make_model(graph, producer_name='matmul_test')
 
     for target, ctx in ctx_list():
+        ##TODO(mbrookhart): remove when VM supports heterogenous execution
+        if "cuda" in target: continue
         tvm_out = get_tvm_output_with_vm(
             model, [a_array, b_array], target, ctx)
         tvm.testing.assert_allclose(out_np, tvm_out, rtol=1e-5, atol=1e-5)
@@ -1305,6 +1310,8 @@ def verify_constantofshape(input_dim, value, dtype):
     model = helper.make_model(graph, producer_name='fill_test')
 
     for target, ctx in ctx_list():
+        ##TODO(mbrookhart): remove when VM supports heterogenous execution
+        if "cuda" in target: continue
         input_np = np.array(input_dim).astype("float32")
         tvm_out = get_tvm_output_with_vm(model, [input_np], target, ctx)
 
@@ -1922,6 +1929,8 @@ def verify_tile_v6(indata, repeats, outdata):
     model = helper.make_model(graph, producer_name='tile_test')
 
     for target, ctx in ctx_list():
+        ##TODO(mbrookhart): remove when VM supports heterogenous execution
+        if "cuda" in target: continue
         tvm_out = get_tvm_output_with_vm(model, [indata, repeats],
                                  target,
                                  ctx,
@@ -2123,6 +2132,8 @@ def test_batch_norm_dynamic_subgraph():
         model = helper.make_model(graph, producer_name='batchnorm_test')
 
         for target, ctx in ctx_list():
+            ##TODO(mbrookhart): remove when VM supports heterogenous execution
+            if "cuda" in target: continue
             x = np.random.uniform(size=in_shape).astype('float32')
             inp = np.random.uniform(size=o_shape).astype('float32')
             scale = np.random.uniform(size=in_shape[1]).astype('float32')
@@ -2959,7 +2970,6 @@ def test_resize():
 
         if oshape == []:
             oshape = [round(dim * scale) for (dim, scale) in zip(ishape, scales)]
-
         graph = helper.make_graph(nodes,
                                   "resize_test",
                                   inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, ishape)],
@@ -2968,9 +2978,11 @@ def test_resize():
         model = helper.make_model(graph, producer_name='resize_test')
 
         for target, ctx in ctx_list():
+            ##TODO(mbrookhart): remove when VM supports heterogenous execution
+            if "cuda" in target: continue
             x = np.random.uniform(size=ishape).astype('float32')
             onnx_out = get_onnxruntime_output(model, x, 'float32')
-            tvm_out = get_tvm_output(model, x, target, ctx, oshape, 'float32', opset=11)
+            tvm_out = get_tvm_output_with_vm(model, x, target, ctx, opset=11, freeze_params=True)
 
             tvm.testing.assert_allclose(onnx_out, tvm_out, rtol=1e-05, atol=1e-05)
 
