@@ -1542,20 +1542,28 @@ def test_all_reduce_funcs():
                                axis=(1,), keepdims=keepdims)
 
 
-def verify_split(indata, outdatas, split, axis=0):
+def verify_split(indata, outdatas, split, axis=0, pass_split=True):
     indata = np.array(indata).astype(np.float32)
     outdatas = [np.array(o).astype(np.float32) for o in outdatas]
     if split:
         split_index = range(len(split))
     else:
         split_index = range(len(outdatas))
-    node = helper.make_node(
-        'Split',
-        inputs=['input'],
-        outputs=['output_{}'.format(i) for i in range(len(split_index))],
-        axis=axis,
-        split=split
-    )
+    if pass_split:
+        node = helper.make_node(
+            'Split',
+            inputs=['input'],
+            outputs=['output_{}'.format(i) for i in range(len(split_index))],
+            axis=axis,
+            split=split
+        )
+    else:
+        node = helper.make_node(
+            'Split',
+            inputs=['input'],
+            outputs=['output_{}'.format(i) for i in range(len(split_index))],
+            axis=axis,
+        )
     graph = helper.make_graph([node],
                               'split_test',
                               inputs=[helper.make_tensor_value_info("input",
@@ -1566,13 +1574,17 @@ def verify_split(indata, outdatas, split, axis=0):
                                        ])
     model = helper.make_model(graph, producer_name='split_test')
 
+    import onnxruntime.backend
+    rep = onnxruntime.backend.prepare(model, 'CPU')
+    onnx_out = rep.run(indata)
+
     for target, ctx in tvm.testing.enabled_targets():
         output_shape = [o.shape for o in outdatas]
         output_type = ['float32', 'float32', 'float32']
         tvm_out = get_tvm_output(
             model, indata, target, ctx, output_shape, output_type)
-    for o, t in zip(outdatas, tvm_out):
-        tvm.testing.assert_allclose(o, t)
+        for o, t in zip(onnx_out, tvm_out):
+            tvm.testing.assert_allclose(o, t)
 
 
 @tvm.testing.uses_gpu
@@ -1581,12 +1593,14 @@ def test_split():
     verify_split([1., 2., 3., 4., 5., 6.], [
                  [1., 2.], [3., 4.], [5., 6.]], [2, 2, 2], 0)
     verify_split([1., 2., 3., 4., 5., 6.], [
+                 [1., 2.], [3., 4.], [5., 6.]], [2, 2, 2], 0, False)
+    verify_split([1., 2., 3., 4., 5., 6.], [
                  [1., 2.], [3.], [4., 5., 6.]], [2, 1, 3], 0)
     # 2D
     verify_split([[1., 2., 3., 4.], [7., 8., 9., 10.]],
                  [[[1., 2.], [7., 8.]], [[3., 4.], [9., 10.]]], [2, 2], 1)
     # Split evenly (unstack)
-    verify_split([1, 2, 3], [[1], [2], [3]], False)
+    verify_split([1, 2, 3], [[1], [2], [3]], False, 0, False)
 
 
 @tvm.testing.uses_gpu

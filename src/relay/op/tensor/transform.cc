@@ -1770,9 +1770,9 @@ bool SqueezeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
       if (p.second) {
         result_shape.push_back(p.first);
       } else {
-        const int64_t* axis_ptr = tir::as_const_int(p.first);
-        CHECK(axis_ptr != nullptr) << "cannot get concrete shape of input tensor";
-        CHECK_EQ(*axis_ptr, 1) << "cannot squeeze axis with dimension not equal to 1";
+        if (const int64_t* axis_ptr = tir::as_const_int(p.first)) {
+          CHECK_EQ(*axis_ptr, 1) << "cannot squeeze axis with dimension not equal to 1";
+        }
       }
     }
   }
