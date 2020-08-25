@@ -899,9 +899,9 @@ class Upsample(OnnxOpConverter):
         # in 3d case, we use the purely static op
         if dims == 5:
             if isinstance(scales, Call):
-                scale_h = _op.strided_slice(scales, [-2], [-1])
-                scale_w = _op.strided_slice(scales, [-1], [0])
-                scale_d = _op.strided_slice(scales, [-3], [-2])
+                scale_h = _op.take(scales, _op.const(-2))
+                scale_w = _op.take(scales, _op.const(-1))
+                scale_d = _op.take(scales, _op.const(-3))
             else:
                 assert len(scales) == 5
                 scale_h = scales[-2]
@@ -912,13 +912,14 @@ class Upsample(OnnxOpConverter):
         # in 2d case, use dynamic op
         else:
             if isinstance(scales, Call):
-                scale_h = _op.strided_slice(scales, [-2], [-1])
-                scale_w = _op.strided_slice(scales, [-1], [0])
+                scale_h = _op.take(scales, _op.const(-2))
+                scale_w = _op.take(scales, _op.const(-1))
             else:
                 assert len(scales) == 4
                 scale_h = scales[-2]
                 scale_w = scales[-1]
             layout = 'NCHW'
+            print(inputs[0])
             return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=True)
 
 
