@@ -54,6 +54,11 @@ bool ReshapeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 
   Array<IndexExpr> oshape;
   const auto* newshape = types[1].as<TensorTypeNode>();
+  if (newshape == nullptr) {
+    CHECK(types[1].as<IncompleteTypeNode>())
+        << "reshape: expect input type to be TensorType but get " << types[1];
+    return false;
+  }
 
   // Doesn't support dynamic output rank
   for (int i = 0; i < newshape->shape[0].as<IntImmNode>()->value; i++) {
