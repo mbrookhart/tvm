@@ -651,22 +651,21 @@ class Pad(OnnxOpConverter):
 
     @classmethod
     def _impl_v11(cls, inputs, attr, params):
-        pad_width = []
         pads = inputs[1]
         if len(inputs) == 3:
-            value = inputs[2]
+            print("inputs[2]: ", inputs[2])
+            value = _op.take(inputs[2], _op.const(0))
         else:
-            value = 0
+            value = np.array(0.0).astype('float32')
         attr["pad_value"] = value
-        dims = int(_op.shape_of(pads)[0] / 2)
-        for i in range(dims):
-            pad_width.append((pads[i], pads[i+dims]))
+        pads_shape = infer_shape(pads)
+        dims = int(pads_shape[0] / 2)
+        pad_width_expr = _op.cast(_op.transpose(_op.reshape(pads, (dims, 2))), 'int32')
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
         if not pad_mode in ['constant', 'edge', 'reflect']:
             raise tvm.error.OpAttributeInvalid(
                 'Value ' + pad_mode + ' in attribute "mode" is invalid for operator Pad.')
-        return _op.nn.pad(inputs[0], pad_width, pad_val, pad_mode=pad_mode)
-
+        return _op.nn.pad(inputs[0], pad_width_expr, value, pad_mode=pad_mode)
 
 class ParametricSoftPlus(OnnxOpConverter):
     """ Operator converter for ParametricSoftPlus.
@@ -890,7 +889,6 @@ class Upsample(OnnxOpConverter):
 
     @classmethod
     def _impl_v9(cls, inputs, attr, params):
-        print("starting")
         scales = attr.get('scales')
         if not scales:
             #Here we are going to higher OPSET version.
@@ -903,7 +901,6 @@ class Upsample(OnnxOpConverter):
             inputs = inputs[:1]
         # sometimes this is coming in as a call / free variable, sometimes as a lot of tuples
 
-        print("scales", scales)
         if not isinstance(scales, Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
 
@@ -943,7 +940,8 @@ class Upsample(OnnxOpConverter):
                 scale_h = scales[-2]
                 scale_w = scales[-1]
             layout = 'NCHW'
-            print(inputs[0])
+            print("scale_h", scale_h)
+            print("scale_w", scale_w)
             return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=True)
 
 class Shape(OnnxOpConverter):
