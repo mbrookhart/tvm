@@ -59,7 +59,7 @@ bool PadRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 
   auto pad_width_dim1 = pad_width->shape[0].as<IntImmNode>();
   auto pad_width_dim2 = pad_width->shape[1].as<IntImmNode>();
-
+  std::cout << "pad dims" << std::endl;
   CHECK(pad_width_dim1->value == data_rank && pad_width_dim2->value == 2)
       << "Pad width must have shape (N, 2), where N is the rank of input data";
 
@@ -87,7 +87,6 @@ Array<te::Tensor> PadCompute(const Attrs& attrs, const Array<te::Tensor>& inputs
 
   Array<IndexExpr> pad_before;
   Array<IndexExpr> pad_after;
-
   for (int i = 0; i < pad_width->shape[0].as<IntImmNode>()->value; ++i) {
     pad_before.push_back(pad_width[i][0]);
     pad_after.push_back(pad_width[i][1]);
