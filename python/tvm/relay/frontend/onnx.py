@@ -660,7 +660,7 @@ class Pad(OnnxOpConverter):
         attr["pad_value"] = value
         pads_shape = infer_shape(pads)
         dims = int(pads_shape[0] / 2)
-        pad_width_expr = _op.cast(_op.transpose(_op.reshape(pads, (dims, 2))), 'int64')
+        pad_width_expr = _op.transpose(_op.reshape(pads, (2, dims)))
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
         if not pad_mode in ['constant', 'edge', 'reflect']:
             raise tvm.error.OpAttributeInvalid(

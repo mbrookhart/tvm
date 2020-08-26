@@ -1443,9 +1443,6 @@ def pad(data,
     result : tvm.relay.Expr
         The computed result.
     """
-    print("data: ", data)
-    print("pad_width: ", pad_width)
-    print("pad_value: ", pad_value)
     if (isinstance(pad_width, Expr) or (isinstance(pad_value, Expr))):
         if not isinstance(pad_width, Expr):
             pad_width = const(list(pad_width))
