@@ -1396,7 +1396,7 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
                                   outputs=[helper.make_tensor_value_info("output",
                                                                          TensorProto.FLOAT, list(outdata.shape))])
     else:
-        inputs = [indata, pads, np.array([value])]
+        inputs = [indata, pads, np.array([value]).astype("float32")]
         outdata = np.pad(indata, pad_width=np_pads,
                          mode='constant', constant_values=value)
         node = helper.make_node(

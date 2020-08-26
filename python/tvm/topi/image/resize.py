@@ -584,6 +584,7 @@ def resize(data, size, layout="NCHW", method="bilinear",
         compute_func = _bicubic
     else:
         raise ValueError('%s method is not supported.' % method)
+
     return te.compute(output_shape, compute_func, name='resize', tag=tag.INJECTIVE)
 
 
