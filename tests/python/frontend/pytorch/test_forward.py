@@ -1202,13 +1202,13 @@ def test_forward_slice():
 
     class Slice2(Module):
         def forward(self, *args):
-            return args[0][0, :, :, :]
+            return args[0][0, :, :-3, :]
 
     class Slice3(Module):
         def forward(self, *args):
             x0 = torch.tensor(2) - torch.tensor(1)
             x1 = torch.tensor(3) + torch.tensor(1)
-            return args[0][:, x0:, :x1, :]
+            return args[0][:, x0:, 1:x1, :]
 
     input_data = torch.rand(input_shape).float()
     verify_model(Slice1().float().eval(), input_data=input_data)
@@ -1428,6 +1428,31 @@ def test_forward_upsample3d():
     verify_model(torch.nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True).eval(), inp)
 
 
+def test_forward_nms():
+    """dynamic Non-Maximum Suppression"""
+    torch.set_grad_enabled(False)
+    class NonMaxSupression(Module):
+        def __init__(self, iou_thres):
+            super().__init__()
+            self.iou_threshold = iou_thres
+
+        def forward(self, *args):
+            return torchvision.ops.nms(args[0], args[1], self.iou_threshold)
+
+    # Generate random input data
+    def _gen_rand_inputs(num_boxes):
+        box_len = 4
+        boxes = torch.rand(num_boxes, box_len, dtype=torch.float) * 0.5
+        boxes[:, 2] += boxes[:, 0]
+        boxes[:, 3] += boxes[:, 1]
+        scores = torch.rand(num_boxes, dtype=torch.float)
+        return boxes, scores
+
+    for num_boxes, iou_thres in [(10, 0.3), (100, 0.5), (500, 0.9)]:
+        in_boxes, in_scores = _gen_rand_inputs(num_boxes)
+        verify_trace_model(NonMaxSupression(iou_thres), [in_boxes, in_scores])
+
+
 def test_conv3d():
     for ishape in [(1, 32, 16, 16, 16),
                    (1, 32, 9, 15, 15),
@@ -1577,32 +1602,43 @@ def test_3d_models():
 
 def verify_script_model(pt_model, ishapes):
     script_module = torch.jit.script(pt_model)
+    verify_model_vm(script_module, ishapes)
 
+
+def verify_trace_model(pt_model, idata):
+    traced_model = torch.jit.trace(pt_model, idata)
+    ishapes = [data.shape for data in idata]
+    verify_model_vm(traced_model, ishapes, idata=idata)
+
+
+def verify_model_vm(imodel, ishapes, idtype=torch.float, idata=None):
+    input_model = imodel
     input_names = ["i{}".format(idx) for idx, ish in enumerate(ishapes)]
     input_shapes = list(zip(input_names, ishapes))
-
-    inputs = [torch.randn(shape, dtype=torch.float)
-              for shape in ishapes]
-
-    mod, params = relay.frontend.from_pytorch(script_module, input_shapes)
+    input_data = idata if idata else [torch.randn(shape, dtype=idtype)
+                                      for shape in ishapes]
+    # Compile via VM
+    mod, params = relay.frontend.from_pytorch(input_model, input_shapes)
 
     executor = relay.create_executor("vm", mod=mod, ctx=tvm.cpu(0),
                                      target="llvm")
     evaluator = executor.evaluate()
 
-    for name, inp in zip(input_names, inputs):
+    # Inference
+    for name, inp in zip(input_names, input_data):
         params[name] = inp.numpy()
+    vm_res = evaluator(**params)
 
-    op_res = evaluator(**params)
-
+    # Baseline result
     with torch.no_grad():
-        pt_result = pt_model(*inputs)
+        pt_result = input_model(*input_data)
 
+    # Verify the accuracy
     if not isinstance(pt_result, torch.Tensor):
-        tvm_res = op_res.asnumpy().item()
+        tvm_res = vm_res.asnumpy().item()
         assert pt_result == tvm_res
     else:
-        tvm.testing.assert_allclose(op_res.asnumpy(), pt_result.numpy(),
+        tvm.testing.assert_allclose(vm_res.asnumpy(), pt_result.numpy(),
                                     rtol=1e-5, atol=1e-5)
 
 
@@ -2620,6 +2656,25 @@ def test_forward_matmul():
     verify_model(MatMul1().float().eval(), input_data=[tensor1, tensor2])
 
 
+def test_forward_index():
+    torch.set_grad_enabled(False)
+    input_shape = [3, 4, 5, 6]
+
+    class Index0(Module):
+        def forward(self, x):
+            return x[[0, 1], [0, 2], :2, 4]
+
+    input_data = torch.rand(input_shape).float()
+    verify_model(Index0().eval(), input_data=input_data)
+
+    class Index1(Module):
+        def forward(self, x):
+            return x[[0], [1, 2, 3, 0], [3, 1, 2, 2], [4, 2, 1, 0]]
+
+    input_data = torch.rand(input_shape).float()
+    verify_model(Index1().eval(), input_data=input_data)
+
+
 def test_forward_pretrained_bert_base_uncased():
     ######################################################################
     # This is an example how to run BERT models using TVM
@@ -2844,6 +2899,7 @@ if __name__ == "__main__":
     test_forward_gather()
     test_upsample()
     test_forward_upsample3d()
+    test_forward_nms()
     test_to()
     test_type_as()
     test_forward_functional_pad()
@@ -2859,6 +2915,7 @@ if __name__ == "__main__":
     test_adaptive_pool3d()
     test_conv3d()
     test_conv3d_transpose()
+    test_forward_index()
 
     # Model tests
     test_resnet18()

@@ -32,7 +32,7 @@ from .. import op as _op
 from ..ty import TupleType, TensorType, Any
 from ..loops import while_loop
 from .. import transform
-from .common import get_relay_op
+from .common import AttrCvt, get_relay_op
 from .common import infer_shape as _infer_shape
 from .common import infer_value as _infer_value
 from .common import infer_value_simulated as _infer_value_simulated
@@ -274,16 +274,18 @@ def _slice():
             end[dim] = min(end[dim], int(inputs[3]))
         else:
             if isinstance(inputs[3], _expr.Call):
-                end[dim] = np.asscalar(_infer_value(inputs[3], {}).asnumpy().astype(np.int))
+                target_end = np.asscalar(_infer_value(inputs[3], {}).asnumpy().astype(np.int))
             else:
-                end[dim] = inputs[3]
+                target_end = inputs[3]
+
+            end[dim] = min(end[dim], target_end)
 
         strides.append(int(inputs[4]))
         return _op.transform.strided_slice(data,
                                            begin=_expr.const(begin),
                                            end=_expr.const(end),
                                            strides=_expr.const(strides),
-                                           slice_mode="size")
+                                           slice_mode="end")
     return _impl
 
 def _split():
@@ -1539,7 +1541,9 @@ def _upsample(method, prelude):
         else:
             align_corners = False
 
-        if align_corners:
+        if method == "nearest_neighbor":
+            coord_trans = "asymmetric"
+        elif align_corners:
             coord_trans = "align_corners"
         else:
             coord_trans = "half_pixel"
@@ -1584,7 +1588,9 @@ def _upsample3d(method):
         else:
             align_corners = False
 
-        if align_corners:
+        if method == "nearest_neighbor":
+            coord_trans = "asymmetric"
+        elif align_corners:
             coord_trans = "align_corners"
         else:
             coord_trans = "half_pixel"
@@ -1755,11 +1761,102 @@ def _one_hot():
     return _impl
 
 
+def _index():
+    def _impl(inputs, input_types):
+        data = inputs[0]
+        indices = []
+        raw_indices = []
+        max_indices_len = -1
+        for index in inputs[1]:
+            if not isinstance(index, _expr.Constant):
+                try:
+                    index = _expr.const(_infer_value(index, {}))
+                except Exception:
+                    raise RuntimeError("Only supports constant indices for "
+                                       "pytorch advanced indexing ")
+            raw_indices.append(index)
+            cindex_len = index.data.shape[0]
+            if cindex_len > max_indices_len:
+                max_indices_len = cindex_len
+
+        for index in raw_indices:
+            cnp = index.data.asnumpy()
+            cindex_len = cnp.shape[0]
+            if cindex_len < max_indices_len:
+                cnp = np.tile(cnp, max_indices_len // cindex_len)
+            indices.append(cnp)
+
+        ret = []
+        slice_map = {}
+        for i in range(indices[0].shape[0]):
+            tmp = data
+            current_indices = []
+            for index in indices:
+                current_indices.append(index[i])
+                index_key = tuple(current_indices)
+                if index_key in slice_map:
+                    tmp = slice_map[index_key]
+                else:
+                    tmp = _op.take(tmp, _expr.const(index[i]), axis=0)
+                    slice_map[index_key] = tmp
+            ret.append(_op.expand_dims(tmp, axis=0))
+
+        return _op.concatenate(ret, axis=0)
+    return _impl
+
+
 def _meshgrid():
     def _impl(inputs, input_types):
         data = inputs[0]
         return _op.meshgrid(data, indexing="ij")
     return _impl
+
+
+def _nms(prelude):
+    def _impl(inputs, input_types):
+        boxes = inputs[0]
+        scores = inputs[1]
+        iou_threshold = inputs[2]
+
+        # Generate data with shape (1, num_anchors, 5)
+        scores = AttrCvt(op_name="expand_dims",
+                         extras={'axis': -1, 'num_newaxis': 1})([scores], {})
+
+        # Prepare input data for get_valid_counts
+        data = _op.concatenate([scores, boxes], -1)
+        data = _op.expand_dims(data, 0, 1)
+        # Leverage get_valid_counts to sort the data and clear invalid boxes
+        ct, data, indices = get_relay_op('get_valid_counts')(data,
+                                                             score_threshold=-1.0,
+                                                             id_index=-1,
+                                                             score_index=0)
+
+        # Perform Non-Maximum Suppression,
+        # PyTorch NMS doesn't have parameter top_k and max_output_size
+        score_index = 0
+        top_k = max_out_size = -1
+        nms_ret = get_relay_op('non_max_suppression')(data=data,
+                                                      valid_count=ct,
+                                                      indices=indices,
+                                                      max_output_size=max_out_size,
+                                                      iou_threshold=iou_threshold,
+                                                      force_suppress=True,
+                                                      top_k=top_k,
+                                                      coord_start=1,
+                                                      score_index=score_index,
+                                                      id_index=-1,
+                                                      return_indices=True,
+                                                      invalid_to_bottom=False)
+
+        # squeeze the two outputs of nms for strided_slice
+        size = get_relay_op("squeeze")(nms_ret[1], axis=[1])
+        data_slice = get_relay_op("squeeze")(nms_ret[0], axis=[0])
+
+        # strided slice to get the dynamic result
+        return get_relay_op("strided_slice")(data_slice, begin=_expr.const([0]),
+                                             end=size, slice_mode="size")
+    return _impl
+
 
 def _pytorch_result_type(dtypes, non_tensor_inputs):
     """This promotes TVM dtypes like PyTorch would"""
@@ -2060,6 +2157,8 @@ def _get_convert_map(prelude):
         "aten::type_as"                         : _type_as(),
         "aten::gather"                          : _gather(),
         "aten::index_select"                    : _select(),
+        "aten::index"                           : _index(),
+        "torchvision::nms"                      : _nms(prelude),
     }
     return convert_map
 
