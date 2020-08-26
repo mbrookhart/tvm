@@ -642,7 +642,6 @@ class Pad(OnnxOpConverter):
     def _impl_v11(cls, inputs, attr, params):
         pads = inputs[1]
         if len(inputs) == 3:
-            print("inputs[2]: ", inputs[2])
             value = _op.take(inputs[2], _op.const(0))
         else:
             value = 0
@@ -873,9 +872,8 @@ class Upsample(OnnxOpConverter):
                 scales = params[inputs[1].name_hint].asnumpy()
             else:
                 scales = inputs[1] # why did we need to do infer_val_sim on this one since it is just consts??
-                
+   
             inputs = inputs[:1]
-        # sometimes this is coming in as a call / free variable, sometimes as a lot of tuples
 
         if not isinstance(scales, Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
@@ -916,8 +914,7 @@ class Upsample(OnnxOpConverter):
                 scale_h = scales[-2]
                 scale_w = scales[-1]
             layout = 'NCHW'
-            print("scale_h", scale_h)
-            print("scale_w", scale_w)
+
             return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=True)
 
 
