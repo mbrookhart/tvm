@@ -974,7 +974,7 @@ def _test_upsample_bilinear_opset9():
     for target, ctx in ctx_list():
         ##TODO(mbrookhart)(electriclilies): remove when VM supports heterogeneous execution
         if "cuda" in target: continue
-        tvm_out = get_tvm_output_with_vm(model, [in_array, scale, scale], target, ctx, opset=9)
+        tvm_out = get_tvm_output_with_vm(model, [in_array, np.array(scale), np.array(scale)], target, ctx, opset=9, freeze_params=True)
         tvm.testing.assert_allclose(out_array, tvm_out, rtol=1e-5, atol=1e-5)
 
 def _test_upsample3d_trilinear():
@@ -1421,8 +1421,9 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
     model = helper.make_model(graph, producer_name='pad_test')
     #  tvm result
     for target, ctx in ctx_list():
-        tvm_out = get_tvm_output(
-            model, inputs, target, ctx, outdata.shape, 'float32', opset=11)
+        ##TODO(mbrookhart)(electriclilies): remove when VM supports heterogeneous execution
+        if "cuda" in target: continue
+        tvm_out = get_tvm_output_with_vm(model, inputs, target, ctx, opset=11, freeze_params=False)
     tvm.testing.assert_allclose(outdata, tvm_out, rtol=1e-5, atol=1e-5)
 
 
