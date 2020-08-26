@@ -155,7 +155,6 @@ void CodeGenLLVM::AddFunctionInternal(const PrimFunc& f, bool ret_void) {
   }
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx_, "entry", function_);
   builder_->SetInsertPoint(entry);
-  std::cout << f << std::endl;
   this->VisitStmt(f->body);
 
   // Add alignment attribute if needed.
