@@ -656,11 +656,11 @@ class Pad(OnnxOpConverter):
             print("inputs[2]: ", inputs[2])
             value = _op.take(inputs[2], _op.const(0))
         else:
-            value = np.array(0.0).astype('float32')
+            value = 0
         attr["pad_value"] = value
         pads_shape = infer_shape(pads)
         dims = int(pads_shape[0] / 2)
-        pad_width_expr = _op.cast(_op.transpose(_op.reshape(pads, (dims, 2))), 'int32')
+        pad_width_expr = _op.cast(_op.transpose(_op.reshape(pads, (dims, 2))), 'int64')
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
         if not pad_mode in ['constant', 'edge', 'reflect']:
             raise tvm.error.OpAttributeInvalid(
