@@ -1412,7 +1412,7 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
                                           helper.make_tensor_value_info("pads",
                                                                         TensorProto.INT64,(len(pads),)),
                                           helper.make_tensor_value_info("constant_value",
-                                                                        TensorProto.INT64,(1,)),
+                                                                        TensorProto.FLOAT,(1,)),
                                           ],
                                   initializer=[helper.make_tensor("pads", TensorProto.INT64, (len(pads),), pads),
                                                helper.make_tensor("constant_value", TensorProto.FLOAT, (1,), [value])],

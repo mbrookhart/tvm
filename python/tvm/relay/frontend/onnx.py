@@ -645,12 +645,11 @@ class Pad(OnnxOpConverter):
             print("inputs[2]: ", inputs[2])
             value = _op.take(inputs[2], _op.const(0))
         else:
-            value = np.array(0.0).astype('float32')
+            value = 0
         attr["pad_value"] = value
-        dims = int(_op.shape_of(pads)[0] / 2)
-        for i in range(dims):
-            pad_width.append((pads[i], pads[i + dims]))
-        attr['pad_width'] = pad_width
+        pads_shape = infer_shape(pads)
+        dims = int(pads_shape[0] / 2)
+        pad_width_expr = _op.cast(_op.transpose(_op.reshape(pads, (dims, 2))), 'int64')
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
         if pad_mode in ['constant', 'edge', 'reflect']:
             attr['pad_mode'] = pad_mode
