@@ -988,10 +988,8 @@ def _test_upsample_bilinear_opset9():
         graph, producer_name='upsample_bilinear_opset9_test')
 
     for target, ctx in tvm.testing.enabled_targets():
-        tvm_out = get_tvm_output(
-            model, in_array, target, ctx, out_shape, 'float32')
+        tvm_out = get_tvm_output_with_vm(model, [in_array], target, ctx, opset=9, freeze_params=True)
         tvm.testing.assert_allclose(out_array, tvm_out, rtol=1e-5, atol=1e-5)
-
 
 def _test_upsample3d_trilinear():
     scale = 2
@@ -1026,7 +1024,8 @@ def _test_upsample3d_trilinear():
             model, in_array, target, ctx, out_shape, 'float32')
         tvm.testing.assert_allclose(out_array, tvm_out, rtol=1e-5, atol=1e-5)
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_upsample():
     _test_upsample_nearest()
     _test_upsample_bilinear()
@@ -1419,7 +1418,7 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
                                   outputs=[helper.make_tensor_value_info("output",
                                                                          TensorProto.FLOAT, list(outdata.shape))])
     else:
-        inputs = [indata, pads, np.array([value])]
+        inputs = [indata, pads, np.array([value]).astype("float32")]
         outdata = np.pad(indata, pad_width=np_pads,
                          mode='constant', constant_values=value)
         node = helper.make_node(
@@ -1435,7 +1434,7 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
                                           helper.make_tensor_value_info("pads",
                                                                         TensorProto.INT64,(len(pads),)),
                                           helper.make_tensor_value_info("constant_value",
-                                                                        TensorProto.INT64,(1,)),
+                                                                        TensorProto.FLOAT,(1,)),
                                           ],
                                   initializer=[helper.make_tensor("pads", TensorProto.INT64, (len(pads),), pads),
                                                helper.make_tensor("constant_value", TensorProto.FLOAT, (1,), [value])],
@@ -1444,12 +1443,12 @@ def verify_pad_v11(indata, pads, mode='constant', value=0.0):
     model = helper.make_model(graph, producer_name='pad_test')
     #  tvm result
     for target, ctx in tvm.testing.enabled_targets():
-        tvm_out = get_tvm_output(
-            model, inputs, target, ctx, outdata.shape, 'float32', opset=11)
+        tvm_out = get_tvm_output_with_vm(model, inputs, target, ctx, opset=11, freeze_params=False)
     tvm.testing.assert_allclose(outdata, tvm_out, rtol=1e-5, atol=1e-5)
 
 
-@tvm.testing.uses_gpu
+# TODO(mbrookhart): enable once VM supports heterogenous execution
+# @tvm.testing.uses_gpu
 def test_pad():
     verify_pad(np.random.randn(2, 2).astype(
         np.float32), [0, 1, 0, 0], 'constant', 0.0)
