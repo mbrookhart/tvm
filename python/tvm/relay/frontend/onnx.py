@@ -901,7 +901,7 @@ class Upsample(OnnxOpConverter):
             scale_d = scales[-3]
             layout = 'NCDHW'
             return _op.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w,
-                                       layout=layout, method=method, align_corners=align_corners)
+                                       layout=layout, method=method)
         # in 2d case, use dynamic op
         else:
             if isinstance(scales, Call):
