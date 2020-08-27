@@ -644,6 +644,7 @@ class Pad(OnnxOpConverter):
             value = _op.take(inputs[2], _op.const(0))
         else:
             value = 0
+
         pads_shape = infer_shape(pads)
         dims = int(pads_shape[0] / 2)
         pad_width_expr = _op.transpose(_op.reshape(pads, (2, dims)))
@@ -912,6 +913,7 @@ class Upsample(OnnxOpConverter):
             layout = 'NCHW'
 
             return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=align_corners)
+
 
 class Shape(OnnxOpConverter):
     """ Operator converter for Shape.
@@ -1372,6 +1374,7 @@ class Tile(Elemwise):
     @classmethod
     def _impl_v6(cls, inputs, attr, params):
         return _op.tile(inputs[0], inputs[1])
+
 
 class Erf(OnnxOpConverter):
     """Operator converter for Erf
@@ -1995,6 +1998,7 @@ def _get_convert_map(opset):
         'Resize': Resize.get_converter(opset),
         'NonZero': NonZero.get_converter(opset),
     }
+
 
 class GraphProto():
     """A helper class for handling Relay expression copying from pb2.GraphProto.

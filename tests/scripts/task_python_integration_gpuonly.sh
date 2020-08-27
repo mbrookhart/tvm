@@ -16,25 +16,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Test frontends that only need CPU resources
-set -e
-set -u
-
-source tests/scripts/setup-pytest-env.sh
-# to avoid openblas threading error
-export TVM_BIND_THREADS=0
-export OMP_NUM_THREADS=1
-
-find . -type f -path "*.pyc" | xargs rm -f
-
-# Rebuild cython
-make cython3
-
-echo "Running relay TFLite frontend test..."
-python3 -m pytest tests/python/frontend/tflite
-
-echo "Running relay Keras frontend test..."
-python3 -m pytest tests/python/frontend/keras
-
-echo "Running relay Caffe frontend test..."
-python3 -m pytest tests/python/frontend/caffe
+./tests/scripts/task_python_integration.sh
