@@ -863,20 +863,23 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, inputs, attr, params):
         scales = attr.get('scales')
+
         input_shape = infer_shape(inputs[0])
         dims = len(input_shape)
+        
         if not scales:
             #Here we are going to higher OPSET version.
             assert len(inputs) == 2, "Upsample op takes 2 inputs, {} given".format(len(inputs))
             
             if get_name(inputs[1]) in params:
                 scales = params[inputs[1].name_hint].asnumpy()
+            elif dims == 5:
+                scales = infer_value_simulated(inputs[1], params).asnumpy()
             else:
                 scales = inputs[1]
    
         if not isinstance(scales, Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
-
 
         mode = attr.get('mode')
         if mode == b'nearest':
@@ -893,17 +896,12 @@ class Upsample(OnnxOpConverter):
             align_corners=True
         # in 3d case, we use the purely static op
         if dims == 5:
-            if isinstance(scales, Call):
-                scale_h = _op.take(scales, _op.const(-2))
-                scale_w = _op.take(scales, _op.const(-1))
-                scale_d = _op.take(scales, _op.const(-3))
-            else:
-                assert len(scales) == 5
-                scale_h = scales[-2]
-                scale_w = scales[-1]
-                scale_d = scales[-3]
+            scale_h = scales[-2]
+            scale_w = scales[-1]
+            scale_d = scales[-3]
             layout = 'NCDHW'
-            return _op.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w, layout=layout, method=method)
+            return _op.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w,
+                                       layout=layout, method=method, align_corners=align_corners)
         # in 2d case, use dynamic op
         else:
             if isinstance(scales, Call):
