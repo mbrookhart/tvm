@@ -41,7 +41,6 @@ from .common import infer_type, get_name, infer_value, infer_value_simulated
 
 __all__ = ['from_onnx']
 
-
 class onnx_input():
     """ Dual purpose list or dictionary access object."""
     def __init__(self):
@@ -126,7 +125,6 @@ def revert_caffe2_pad(pads):
     else:
         raise tvm.error.OpAttributeInvalid('Number of pads must be either 2 or 4.')
     return pads
-
 
 def get_pad_pair(input1d, kernel1d, stride1d):
     """infer pad size"""
@@ -641,26 +639,22 @@ class Pad(OnnxOpConverter):
 
     @classmethod
     def _impl_v11(cls, inputs, attr, params):
-        pad_width = []
-        pads = infer_value_simulated(inputs[1], params).asnumpy()
+        pads = inputs[1]
         if len(inputs) == 3:
-            value = infer_value_simulated(inputs[2], params).asnumpy().item()
+            value = _op.take(inputs[2], _op.const(0))
         else:
             value = 0
-        attr["pad_value"] = value
-        dims = int(len(pads) / 2)
-        for i in range(dims):
-            pad_width.append((pads[i], pads[i + dims]))
-        attr['pad_width'] = pad_width
+
+        pads_shape = infer_shape(pads)
+        dims = int(pads_shape[0] / 2)
+        pad_width_expr = _op.transpose(_op.reshape(pads, (2, dims)))
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
-        if pad_mode in ['constant', 'edge', 'reflect']:
-            attr['pad_mode'] = pad_mode
-            attr.pop('mode', None)
-        else:
+
+        if not pad_mode in ['constant', 'edge', 'reflect']:
             raise tvm.error.OpAttributeInvalid('Value ' + pad_mode +
                                                ' in attribute "mode" is invalid for operator Pad.')
 
-        return AttrCvt('pad')(inputs[:1], attr, params)
+        return _op.nn.pad(inputs[0], pad_width_expr, value, pad_mode=pad_mode)
 
 
 class ParametricSoftPlus(OnnxOpConverter):
@@ -868,17 +862,24 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, inputs, attr, params):
         scales = attr.get('scales')
-        if not scales:
-            #Here we are going to higher OPSET version.
-            assert len(inputs) == 2, "Upsample op take 2 inputs, {} given".format(len(inputs))
-            if get_name(inputs[1]) in params:
-                scales = params[inputs[1].name_hint].asnumpy()
-            else:
-                scales = infer_value_simulated(inputs[1], params).asnumpy()
-            inputs = inputs[:1]
-        assert scales[0] == 1.0 and scales[1] == 1.0
+
         input_shape = infer_shape(inputs[0])
         dims = len(input_shape)
+        
+        if not scales:
+            #Here we are going to higher OPSET version.
+            assert len(inputs) == 2, "Upsample op takes 2 inputs, {} given".format(len(inputs))
+            
+            if get_name(inputs[1]) in params:
+                scales = params[inputs[1].name_hint].asnumpy()
+            elif dims == 5:
+                scales = infer_value_simulated(inputs[1], params).asnumpy()
+            else:
+                scales = inputs[1]
+   
+        if not isinstance(scales, Call):
+            assert scales[0] == 1.0 and scales[1] == 1.0
+
         mode = attr.get('mode')
         if mode == b'nearest':
             method = "nearest_neighbor"
@@ -887,21 +888,31 @@ class Upsample(OnnxOpConverter):
         else:
             raise tvm.error.OpAttributeInvalid(
                 'Value {} in attribute "mode" of operator Upsample is not valid.'.format(mode))
-        attr = {'scale_h': scales[-2], 'scale_w': scales[-1], 'method': method}
-        if dims == 5:
-            assert len(scales) == 5
-            attr['scale_d'] = scales[-3]
-            attr['layout'] = 'NCDHW'
-            op_name = 'upsampling3d'
+        
+        if method == 'nearest_neighbor':
+            align_corners=False
         else:
-            assert len(scales) == 4
-            attr['layout'] = 'NCHW'
-            if method == 'nearest_neighbor':
-                attr['align_corners'] = False
+            align_corners=True
+        # in 3d case, we use the purely static op
+        if dims == 5:
+            scale_h = scales[-2]
+            scale_w = scales[-1]
+            scale_d = scales[-3]
+            layout = 'NCDHW'
+            return _op.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w,
+                                       layout=layout, method=method)
+        # in 2d case, use dynamic op
+        else:
+            if isinstance(scales, Call):
+                scale_h = _op.take(scales, _op.const(3))
+                scale_w = _op.take(scales, _op.const(4))
             else:
-                attr['align_corners'] = True
-            op_name = 'upsampling'
-        return AttrCvt(op_name)(inputs, attr)
+                assert len(scales) == 4
+                scale_h = scales[-2]
+                scale_w = scales[-1]
+            layout = 'NCHW'
+
+            return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=align_corners)
 
 
 class Shape(OnnxOpConverter):
@@ -2289,3 +2300,5 @@ def from_onnx(model, shape=None, dtype="float32", opset=None, freeze_params=Fals
             opset = 1
     mod, params = g.from_onnx(graph, opset, freeze_params)
     return mod, params
+
+
