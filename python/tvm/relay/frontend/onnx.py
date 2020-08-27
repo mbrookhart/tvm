@@ -28,18 +28,12 @@ from .. import function as _function
 from .. import op as _op
 from .. import vision as _vision
 
-from ..function import Function
-from ..expr import Call, Let
-from ..expr import If, Tuple, TupleGetItem
-from ..expr import RefCreate, RefRead, RefWrite
-from ..expr_functor import ExprFunctor
-from ..adt import Match, Clause
-
 from .common import AttrCvt, Renamer
 from .common import get_relay_op, new_var, infer_shape, infer_channels
-from .common import infer_type, get_name, infer_value, infer_value_simulated
+from .common import infer_type, get_name, infer_value_simulated
 
 __all__ = ['from_onnx']
+
 
 class onnx_input():
     """ Dual purpose list or dictionary access object."""
@@ -125,6 +119,7 @@ def revert_caffe2_pad(pads):
     else:
         raise tvm.error.OpAttributeInvalid('Number of pads must be either 2 or 4.')
     return pads
+
 
 def get_pad_pair(input1d, kernel1d, stride1d):
     """infer pad size"""
@@ -865,18 +860,18 @@ class Upsample(OnnxOpConverter):
 
         input_shape = infer_shape(inputs[0])
         dims = len(input_shape)
-        
+
         if not scales:
             #Here we are going to higher OPSET version.
             assert len(inputs) == 2, "Upsample op takes 2 inputs, {} given".format(len(inputs))
-            
+
             if get_name(inputs[1]) in params:
                 scales = params[inputs[1].name_hint].asnumpy()
             elif dims == 5:
                 scales = infer_value_simulated(inputs[1], params).asnumpy()
             else:
                 scales = inputs[1]
-   
+
         if not isinstance(scales, Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
 
@@ -888,19 +883,23 @@ class Upsample(OnnxOpConverter):
         else:
             raise tvm.error.OpAttributeInvalid(
                 'Value {} in attribute "mode" of operator Upsample is not valid.'.format(mode))
-        
+
         if method == 'nearest_neighbor':
-            align_corners=False
+            align_corners = False
         else:
-            align_corners=True
+            align_corners = True
         # in 3d case, we use the purely static op
         if dims == 5:
             scale_h = scales[-2]
             scale_w = scales[-1]
             scale_d = scales[-3]
             layout = 'NCDHW'
-            return _op.nn.upsampling3d(inputs[0], scale_d, scale_h, scale_w,
-                                       layout=layout, method=method)
+            out = _op.nn.upsampling3d(inputs[0],
+                                      scale_d,
+                                      scale_h,
+                                      scale_w,
+                                      layout=layout,
+                                      method=method)
         # in 2d case, use dynamic op
         else:
             if isinstance(scales, Call):
@@ -912,7 +911,13 @@ class Upsample(OnnxOpConverter):
                 scale_w = scales[-1]
             layout = 'NCHW'
 
-            return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=align_corners)
+            out = _op.nn.upsampling(inputs[0],
+                                    scale_h,
+                                    scale_w,
+                                    layout=layout,
+                                    method=method,
+                                    align_corners=align_corners)
+        return out
 
 
 class Shape(OnnxOpConverter):
@@ -2145,12 +2150,12 @@ class GraphProto():
         ## Maintain the order of inputs and parametersfrom the ONNX graph, but only include
         ## those parameters that are needed to execute the relay graph
         free_vars = analysis.free_vars(outputs)
-        nodes = {v:k for k,v in self._nodes.items()}
+        nodes = {v: k for k, v in self._nodes.items()}
         free_vars = [nodes[var] for var in free_vars]
         for i_name in self._params:
             if i_name in free_vars and i_name not in self._inputs:
                 self._inputs[i_name] = self._nodes[i_name]
-        func = _function.Function([v for k,v in self._inputs.items()], outputs)
+        func = _function.Function([v for k, v in self._inputs.items()], outputs)
         if freeze_params:
             func, params = self.freeze(func, self._params)
             return IRModule.from_expr(func), params
@@ -2300,5 +2305,3 @@ def from_onnx(model, shape=None, dtype="float32", opset=None, freeze_params=Fals
             opset = 1
     mod, params = g.from_onnx(graph, opset, freeze_params)
     return mod, params
-
-
