@@ -863,17 +863,14 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, inputs, attr, params):
         scales = attr.get('scales')
+        input_shape = infer_shape(inputs[0])
+        dims = len(input_shape)
         if not scales:
             #Here we are going to higher OPSET version.
             assert len(inputs) == 2, "Upsample op takes 2 inputs, {} given".format(len(inputs))
             
-            input_shape = infer_shape(inputs[0])
-            dims = len(input_shape)
-            
             if get_name(inputs[1]) in params:
                 scales = params[inputs[1].name_hint].asnumpy()
-            else if dims == 5:
-                scales = infer_value_simulated(inputs[1], params).asnumpy()
             else:
                 scales = inputs[1]
    
