@@ -2004,7 +2004,7 @@ class GraphProto():
     def __init__(self, shape, dtype):
         self._nodes = {}
         self._params = {}
-        self._inputs = []
+        self._inputs = {}
         self._renames = {}
         self._num_input = 0
         self._num_param = 0
@@ -2075,7 +2075,7 @@ class GraphProto():
                 else:
                     dtype = d_type
                 self._nodes[i_name] = new_var(i_name, shape=tshape, dtype=dtype)
-            self._inputs.append(self._nodes[i_name])
+            self._inputs[i_name] = self._nodes[i_name]
         # get list of unsupported ops
         convert_map = _get_convert_map(opset)
         unsupported_ops = set()
@@ -2131,8 +2131,15 @@ class GraphProto():
         # now return the outputs
         outputs = [self._nodes[self._parse_value_proto(i)] for i in graph.output]
         outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
-
-        func = _function.Function(self._inputs, outputs)
+        ## Maintain the order of inputs and parametersfrom the ONNX graph, but only include
+        ## those parameters that are needed to execute the relay graph
+        free_vars = analysis.free_vars(outputs)
+        nodes = {v:k for k,v in self._nodes.items()}
+        free_vars = [nodes[var] for var in free_vars]
+        for i_name in self._params:
+            if i_name in free_vars and i_name not in self._inputs:
+                self._inputs[i_name] = self._nodes[i_name]
+        func = _function.Function([v for k,v in self._inputs.items()], outputs)
         if freeze_params:
             func, params = self.freeze(func, self._params)
             return IRModule.from_expr(func), params
