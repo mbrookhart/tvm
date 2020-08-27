@@ -961,11 +961,7 @@ def _test_upsample_bilinear_opset9():
     graph = helper.make_graph([ref_node, shape_node, y],
                               'upsample_bilinear_opset9_test',
                               inputs=[helper.make_tensor_value_info(
-                                  "in", TensorProto.FLOAT, list(in_shape)),
-                                  helper.make_tensor_value_info(
-                                      "scale_h", TensorProto.FLOAT, [1,]),
-                                  helper.make_tensor_value_info(
-                                      "scale_w", TensorProto.FLOAT, [1,])],
+                                  "in", TensorProto.FLOAT, list(in_shape))],
                               outputs=[helper.make_tensor_value_info("out", TensorProto.FLOAT, list(out_shape))])
 
     model = helper.make_model(
@@ -974,7 +970,7 @@ def _test_upsample_bilinear_opset9():
     for target, ctx in ctx_list():
         ##TODO(mbrookhart)(electriclilies): remove when VM supports heterogeneous execution
         if "cuda" in target: continue
-        tvm_out = get_tvm_output_with_vm(model, [in_array, np.array(scale), np.array(scale)], target, ctx, opset=9, freeze_params=True)
+        tvm_out = get_tvm_output_with_vm(model, [in_array], target, ctx, opset=9, freeze_params=True)
         tvm.testing.assert_allclose(out_array, tvm_out, rtol=1e-5, atol=1e-5)
 
 def _test_upsample3d_trilinear():

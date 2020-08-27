@@ -903,8 +903,8 @@ class Upsample(OnnxOpConverter):
         # in 2d case, use dynamic op
         else:
             if isinstance(scales, Call):
-                scale_h = _op.take(scales, _op.const(-2))
-                scale_w = _op.take(scales, _op.const(-1))
+                scale_h = _op.take(scales, _op.const(3))
+                scale_w = _op.take(scales, _op.const(4))
             else:
                 assert len(scales) == 4
                 scale_h = scales[-2]
@@ -912,8 +912,6 @@ class Upsample(OnnxOpConverter):
             layout = 'NCHW'
 
             return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=align_corners)
-
-
 
 class Shape(OnnxOpConverter):
     """ Operator converter for Shape.
