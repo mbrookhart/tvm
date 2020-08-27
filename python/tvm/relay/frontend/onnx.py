@@ -645,19 +645,17 @@ class Pad(OnnxOpConverter):
             value = _op.take(inputs[2], _op.const(0))
         else:
             value = 0
-        attr["pad_value"] = value
+
         pads_shape = infer_shape(pads)
         dims = int(pads_shape[0] / 2)
         pad_width_expr = _op.transpose(_op.reshape(pads, (2, dims)))
         pad_mode = attr.get('mode', b'constant').decode('utf-8')
-        if pad_mode in ['constant', 'edge', 'reflect']:
-            attr['pad_mode'] = pad_mode
-            attr.pop('mode', None)
-        else:
+
+        if not pad_mode in ['constant', 'edge', 'reflect']:
             raise tvm.error.OpAttributeInvalid('Value ' + pad_mode +
                                                ' in attribute "mode" is invalid for operator Pad.')
 
-        return AttrCvt('pad')(inputs[:1], attr, params)
+        return _op.nn.pad(inputs[0], pad_width_expr, value, pad_mode=pad_mode)
 
 
 class ParametricSoftPlus(OnnxOpConverter):
@@ -868,18 +866,20 @@ class Upsample(OnnxOpConverter):
         if not scales:
             #Here we are going to higher OPSET version.
             assert len(inputs) == 2, "Upsample op takes 2 inputs, {} given".format(len(inputs))
+            
+            input_shape = infer_shape(inputs[0])
+            dims = len(input_shape)
+            
             if get_name(inputs[1]) in params:
                 scales = params[inputs[1].name_hint].asnumpy()
+            else if dims == 5:
+                scales = infer_value_simulated(inputs[1], params).asnumpy()
             else:
-                scales = inputs[1] # why did we need to do infer_val_sim on this one since it is just consts??
+                scales = inputs[1]
    
-            inputs = inputs[:1]
-
         if not isinstance(scales, Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
 
-        input_shape = infer_shape(inputs[0])
-        dims = len(input_shape)
 
         mode = attr.get('mode')
         if mode == b'nearest':
@@ -890,7 +890,10 @@ class Upsample(OnnxOpConverter):
             raise tvm.error.OpAttributeInvalid(
                 'Value {} in attribute "mode" of operator Upsample is not valid.'.format(mode))
         
-        attr = {'method': method}
+        if method == 'nearest_neighbor':
+            align_corners=False
+        else:
+            align_corners=True
         # in 3d case, we use the purely static op
         if dims == 5:
             if isinstance(scales, Call):
@@ -915,7 +918,7 @@ class Upsample(OnnxOpConverter):
                 scale_w = scales[-1]
             layout = 'NCHW'
 
-            return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=True)
+            return _op.nn.upsampling(inputs[0], scale_h, scale_w, layout=layout, method=method, align_corners=align_corners)
 
 
 class Shape(OnnxOpConverter):

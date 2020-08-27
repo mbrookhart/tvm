@@ -974,7 +974,7 @@ def _test_upsample_bilinear_opset9():
     for target, ctx in ctx_list():
         ##TODO(mbrookhart)(electriclilies): remove when VM supports heterogeneous execution
         if "cuda" in target: continue
-        tvm_out = get_tvm_output_with_vm(model, [in_array, np.array(scale), np.array(scale)], target, ctx, opset=9, freeze_params=True)
+        tvm_out = get_tvm_output_with_vm(model, [in_array, np.array(scale), np.array(scale)], target, ctx, opset=9, freeze_params=False)
         tvm.testing.assert_allclose(out_array, tvm_out, rtol=1e-5, atol=1e-5)
 
 def _test_upsample3d_trilinear():
