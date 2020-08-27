@@ -41,7 +41,6 @@ from .common import infer_type, get_name, infer_value, infer_value_simulated
 
 __all__ = ['from_onnx']
 
-
 class onnx_input():
     """ Dual purpose list or dictionary access object."""
     def __init__(self):
@@ -645,7 +644,6 @@ class Pad(OnnxOpConverter):
             value = _op.take(inputs[2], _op.const(0))
         else:
             value = 0
-
         pads_shape = infer_shape(pads)
         dims = int(pads_shape[0] / 2)
         pad_width_expr = _op.transpose(_op.reshape(pads, (2, dims)))
@@ -1376,7 +1374,6 @@ class Tile(Elemwise):
     def _impl_v6(cls, inputs, attr, params):
         return _op.tile(inputs[0], inputs[1])
 
-
 class Erf(OnnxOpConverter):
     """Operator converter for Erf
     """
@@ -2000,7 +1997,6 @@ def _get_convert_map(opset):
         'NonZero': NonZero.get_converter(opset),
     }
 
-
 class GraphProto():
     """A helper class for handling Relay expression copying from pb2.GraphProto.
     Definition: https://github.com/onnx/onnx/blob/master/onnx/onnx.proto
@@ -2294,3 +2290,5 @@ def from_onnx(model, shape=None, dtype="float32", opset=None, freeze_params=Fals
             opset = 1
     mod, params = g.from_onnx(graph, opset, freeze_params)
     return mod, params
+
+
