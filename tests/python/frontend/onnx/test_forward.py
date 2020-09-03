@@ -159,15 +159,26 @@ def test_reshape():
 # @tvm.testing.uses_gpu
 def test_expand():
 
-    def _test_expand(name, data, shape, ref_data):
+    def _test_expand(name, data, shape, ref_data, dtype="int32"):
         shape_array = np.array(shape)
-        shape_node = onnx.helper.make_node('Constant',
-                                    inputs=[],
-                                    outputs=['shape'],
-                                    value=onnx.helper.make_tensor(name = 'const_tensor',
-                                                                  data_type = onnx.TensorProto.INT32,
-                                                                  dims = shape_array.shape,
-                                                                  vals = shape_array.flatten().astype('int32')))
+        if dtype == "int32":
+            shape_node = onnx.helper.make_node('Constant',
+                                        inputs=[],
+                                        outputs=['shape'],
+                                        value=onnx.helper.make_tensor(name = 'const_tensor',
+                                                                      data_type = onnx.TensorProto.INT32,
+                                                                      dims = shape_array.shape,
+                                                                      vals = shape_array.flatten().astype('int32')))
+        elif dtype == "int64":
+            shape_node = onnx.helper.make_node('Constant',
+                                        inputs=[],
+                                        outputs=['shape'],
+                                        value=onnx.helper.make_tensor(name = 'const_tensor',
+                                                                      data_type = onnx.TensorProto.INT64,
+                                                                      dims = shape_array.shape,
+                                                                      vals = shape_array.flatten().astype('int64')))
+        else:
+            raise "Invalid dtype"
         expand_node = helper.make_node("Expand", ["in", "shape"], ["out"])
 
         graph = helper.make_graph([shape_node, expand_node],
@@ -188,13 +199,15 @@ def test_expand():
     shape = (3, 4)
     data = np.random.uniform(size=in_shape).astype(np.float32)
     ref_data = np.tile(data, 4)
-    _test_expand('expand_with_dim_unchanged_test', data, shape, ref_data)
+    _test_expand('expand_with_dim_unchanged_test', data, shape, ref_data, "int32")
+    _test_expand('expand_with_dim_unchanged_test', data, shape, ref_data, "int64")
 
     in_shape = (3, 1)
     shape = (2, 1, 6)
     data = np.random.uniform(size=in_shape).astype(np.float32)
     ref_data = data * np.ones(shape, dtype=np.float32)
-    _test_expand('expand_with_dim_changed_test', data, shape, ref_data)
+    _test_expand('expand_with_dim_changed_test', data, shape, ref_data, "int32")
+    _test_expand('expand_with_dim_changed_test', data, shape, ref_data, "int64")
 
 
 def verify_depth_to_space(inshape, outshape, mode, blockSize):
