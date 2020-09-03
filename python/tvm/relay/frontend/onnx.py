@@ -1437,7 +1437,8 @@ class Expand(OnnxOpConverter):
     """
     @classmethod
     def _impl_v8(cls, inputs, attr, params):
-        in_shape = _op.shape_of(inputs[0])
+        dtype = infer_type(inputs[1]).checked_type.dtype
+        in_shape = _op.shape_of(inputs[0], dtype=dtype)
         shape = inputs[1]
 
         # Currently 'op.broadcast_to' expect the rank of the given 'shape'
@@ -1456,14 +1457,11 @@ class Expand(OnnxOpConverter):
             in_dims = infer_shape(in_shape)[0]
             new_dims = infer_shape(shape)[0]
             if in_dims < new_dims:
-                in_shape = _op.concatenate([_expr.const([
-                    1,
-                ] * (new_dims - in_dims)), in_shape],
-                                           axis=0)
+                in_shape = _op.concatenate([_expr.const([1, ] * (new_dims - in_dims), dtype=dtype),
+                                            in_shape], axis=0)
             elif new_dims > in_dims:
-                shape = _op.concatenate([_expr.const([
-                    1,
-                ] * (in_dims - new_dims)), shape], axis=0)
+                shape = _op.concatenate([_expr.const([1, ] * (in_dims - new_dims), dtype=dtype),
+                                         shape], axis=0)
             new_shape = _op.maximum(in_shape, shape)
             return new_shape
 
