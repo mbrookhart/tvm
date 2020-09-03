@@ -872,7 +872,7 @@ class Upsample(OnnxOpConverter):
             else:
                 scales = inputs[1]
 
-        if not isinstance(scales, Call):
+        if not isinstance(scales, _expr.Call):
             assert scales[0] == 1.0 and scales[1] == 1.0
 
         mode = attr.get('mode')
@@ -902,7 +902,7 @@ class Upsample(OnnxOpConverter):
                                       method=method)
         # in 2d case, use dynamic op
         else:
-            if isinstance(scales, Call):
+            if isinstance(scales, _expr.Call):
                 scale_h = _op.take(scales, _op.const(3))
                 scale_w = _op.take(scales, _op.const(4))
             else:
