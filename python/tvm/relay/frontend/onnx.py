@@ -2050,6 +2050,13 @@ class GraphProto():
 
         opset : opset version
 
+        freeze_params: bool
+            If this parameter is true, the importer will take any provided
+            onnx input values (weights, shapes, etc) and embed them into the relay model
+            as Constants instead of variables. This allows more aggressive optimizations
+            at compile time and helps in making models static if certain inputs represent
+            attributes relay would traditionally consider compile-time constants.
+
         Returns
         -------
         mod : tvm.IRModule
@@ -2273,6 +2280,13 @@ def from_onnx(model, shape=None, dtype="float32", opset=None, freeze_params=Fals
     opset : int, optional
         Override to autodetected opset.
         This can be helpful for some testing.
+
+    freeze_params: bool
+        If this parameter is true, the importer will take any provided
+        onnx input values (weights, shapes, etc) and embed them into the relay model
+        as Constants instead of variables. This allows more aggressive optimizations
+        at compile time and helps in making models static if certain inputs represent
+        attributes relay would traditionally consider compile-time constants.
 
     Returns
     -------

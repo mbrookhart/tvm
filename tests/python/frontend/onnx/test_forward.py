@@ -48,7 +48,7 @@ def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None, freez
     """ Generic function to execute and get tvm output with vm executor"""
     if not isinstance(input_data, list):
         input_data = [input_data]
-    input_names, shape_dict = get_input_data_shape_dict(graph_def, input_data)
+    _, shape_dict = get_input_data_shape_dict(graph_def, input_data)
 
     mod, params = relay.frontend.from_onnx(graph_def, shape_dict, opset=opset, freeze_params=freeze_params)
 
@@ -799,8 +799,8 @@ def verify_batch_matmul(a_shape, b_shape):
             model, [a_array, b_array], target, ctx)
         tvm.testing.assert_allclose(out_np, tvm_out, rtol=1e-5, atol=1e-5)
 
-# TODO(mbrookhart): enable once VM supports heterogenous execution
-# @tvm.testing.uses_gpu
+# TODO(mbrookhart): enable cuda once VM supports heterogenous execution
+@tvm.testing.parametrize_targets("llvm")
 def test_batch_matmul():
     verify_batch_matmul((2, 3, 4, 3), (2, 3, 3, 4))
     verify_batch_matmul((2, 4, 3), (3, 4))
