@@ -42,7 +42,9 @@ def get_input_data_shape_dict(graph_def, input_data):
     return input_names, shape_dict
 
 
-def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None, freeze_params=False):
+def get_tvm_output_with_vm(
+    graph_def, input_data, target, ctx, opset=None, freeze_params=False, convert_to_static=False
+):
     """ Generic function to execute and get tvm output with vm executor"""
     if not isinstance(input_data, list):
         input_data = [input_data]
@@ -51,7 +53,10 @@ def get_tvm_output_with_vm(graph_def, input_data, target, ctx, opset=None, freez
     mod, params = relay.frontend.from_onnx(
         graph_def, shape_dict, opset=opset, freeze_params=freeze_params
     )
+    if convert_to_static:
+        from tvm.relay import transform
 
+        mod = transform.DynamicToStatic()(mod)
     ex = relay.create_executor("vm", mod=mod, ctx=ctx, target=target)
     result = ex.evaluate()(*input_data)
     if isinstance(result, tvm.runtime.NDArray):
@@ -122,6 +127,7 @@ def verify_with_ort_with_inputs(
     use_vm=False,
     opset=None,
     freeze_params=False,
+    convert_to_static=False,
     dtype="float32",
     rtol=1e-5,
     atol=1e-5,
@@ -140,10 +146,15 @@ def verify_with_ort_with_inputs(
 
     for target in targets:
         ctx = tvm.context(target, 0)
-
         if use_vm:
             tvm_out = get_tvm_output_with_vm(
-                model, inputs, target, ctx, opset=opset, freeze_params=freeze_params
+                model,
+                inputs,
+                target,
+                ctx,
+                opset=opset,
+                freeze_params=freeze_params,
+                convert_to_static=convert_to_static,
             )
         else:
             tvm_out = get_tvm_output(model, inputs, target, ctx, out_shape, dtype, opset=opset)
@@ -159,6 +170,7 @@ def verify_with_ort(
     use_vm=False,
     opset=None,
     freeze_params=False,
+    convert_to_static=False,
     dtype="float32",
     rtol=1e-5,
     atol=1e-5,
@@ -172,6 +184,7 @@ def verify_with_ort(
         use_vm=use_vm,
         opset=opset,
         freeze_params=freeze_params,
+        convert_to_static=convert_to_static,
         dtype=dtype,
         rtol=rtol,
         atol=atol,
@@ -2470,7 +2483,7 @@ def verify_conv(
 
     model = helper.make_model(graph, producer_name="conv_test")
 
-    verify_with_ort(model, [x_shape, w_shape], y_shape)
+    verify_with_ort(model, [x_shape, w_shape], y_shape, use_vm=True, convert_to_static=True)
 
 
 @tvm.testing.uses_gpu

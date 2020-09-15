@@ -317,23 +317,34 @@ class Conv(OnnxOpConverter):
     @classmethod
     def _impl_v1(cls, inputs, attr, params):
         # Use shape of input to determine convolution type.
-        input_shape = infer_shape(inputs[0])
+        data = inputs[0]
+        input_shape = infer_shape(data)
+        ndim = len(input_shape)
         if "auto_pad" in attr:
             attr["auto_pad"] = attr["auto_pad"].decode("utf-8")
             if attr["auto_pad"] in ("SAME_UPPER", "SAME_LOWER"):
-                pad_tuple = []
-                for axis in range(len(input_shape) - 2):
-                    axis_shape = input_shape[2 + axis]
-                    stride = attr["strides"][axis]
-                    kernel = attr["kernel_shape"][axis]
-                    dilation = attr["dilations"][axis]
-                    dilated_kernel = (kernel - 1) * dilation + 1
-                    pad = get_pad_pair(axis_shape, dilated_kernel, stride)
-                    pad_tuple.append(pad)
-                pad_tuple = tuple([val for pair in zip(*pad_tuple) for val in pair])
-                attr["pads"] = pad_tuple
+                strides = _op.const(np.array(attr["strides"]), dtype="int64")
+                kernel_shape = attr["kernel_shape"]
+                dilations = attr["dilations"]
+                dilated_kernel_shape = _op.const(np.array([(kernel - 1) * dilation + 1 for kernel, dilation in zip(kernel_shape, dilations)]), dtype="int64")
+                shape = _op.strided_slice(_op.shape_of(data, dtype="int64"), [2], [ndim])
+
+                zero = _op.const(0, dtype="int64")
+                mod = _op.mod(shape, strides)
+                left = _op.maximum(dilated_kernel_shape - strides, zero)
+                right = _op.maximum(dilated_kernel_shape - mod, zero)
+
+                total_pad = _op.where(_op.equal(mod, zero), left, right)
+                two = _op.const(2, dtype="int64")
+                pad_before = _op.floor_divide(total_pad, two)
+                pad_after = total_pad - pad_before
+                pad = _op.concatenate([_op.reshape(pad_before, [-1, 1]), _op.reshape(pad_after, [-1, 1])], axis=1)
+                pad = _op.concatenate([_op.const(np.zeros([2,2], dtype="int64"), dtype="int64"), pad], axis=0)
+
+                data = _op.nn.pad(inputs[0], pad, _op.const(0.0), "constant")
+
             elif attr["auto_pad"] == "VALID":
-                attr["pads"] = tuple([0 for i in range(len(input_shape) - 2)])
+                attr["pads"] = tuple([0 for i in range(ndim - 2)])
             elif attr["auto_pad"] == "NOTSET":
                 pass
             else:
@@ -361,7 +372,7 @@ class Conv(OnnxOpConverter):
                 "group": ("groups", 1),
             },
             custom_check=dimension_constraint(),
-        )(inputs[:2], attr, params)
+        )([data, inputs[1]], attr, params)
 
         use_bias = len(inputs) == 3
         if use_bias:
