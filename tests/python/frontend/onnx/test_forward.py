@@ -53,10 +53,9 @@ def get_tvm_output_with_vm(
     mod, params = relay.frontend.from_onnx(
         graph_def, shape_dict, opset=opset, freeze_params=freeze_params
     )
-    if convert_to_static:
-        from tvm.relay import transform
 
-        mod = transform.DynamicToStatic()(mod)
+    if convert_to_static:
+        mod = relay.transform.DynamicToStatic()(mod)
 
     ex = relay.create_executor("vm", mod=mod, ctx=ctx, target=target)
     result = ex.evaluate()(*input_data)
@@ -2821,7 +2820,6 @@ def test_unsqueeze_constant():
 
 
 def verify_pooling(x_shape, kernel_shape, strides, pads, out_shape, mode, auto_pad="NOTSET"):
-    print(x_shape, kernel_shape, strides, mode, pads, auto_pad)
     x_np = np.random.uniform(size=x_shape).astype("float32")
 
     if mode == "max":
@@ -3690,6 +3688,99 @@ def test_roi_align():
     verify_roi_align((1, 4, 16, 16), 32, 7, 7, sampling_ratio=2, spatial_scale=1.0)
 
 
+# @tvm.testing.uses_gpu
+def test_non_max_suppression():
+    def verify_nms(
+        boxes, scores, max_ouput_boxes_per_class, iou_threshold, score_threshold, output_dims
+    ):
+        input_names = ["boxes", "scores", "max_output_boxes_per_class", "iou_threshold"]
+        input_nodes = [
+            helper.make_tensor_value_info("boxes", TensorProto.FLOAT, boxes.shape),
+            helper.make_tensor_value_info("scores", TensorProto.FLOAT, scores.shape),
+            helper.make_tensor_value_info(
+                "max_output_boxes_per_class", TensorProto.INT64, max_output_boxes_per_class.shape
+            ),
+            helper.make_tensor_value_info("iou_threshold", TensorProto.FLOAT, iou_threshold.shape),
+        ]
+        inputs = [boxes, scores, max_output_boxes_per_class, iou_threshold]
+        if score_threshold is not None:
+            input_names.append("score_threshold")
+            input_nodes.append(
+                helper.make_tensor_value_info(
+                    "score_threshold", TensorProto.FLOAT, score_threshold.shape
+                )
+            )
+            inputs.append(score_threshold)
+        node = helper.make_node(
+            "NonMaxSuppression",
+            inputs=input_names,
+            outputs=["Y"],
+            center_point_box=0,
+        )
+
+        graph = helper.make_graph(
+            [node],
+            "nms_test",
+            inputs=input_nodes,
+            outputs=[helper.make_tensor_value_info("Y", TensorProto.INT64, output_dims)],
+        )
+
+        model = helper.make_model(graph, producer_name="nms_test")
+
+        verify_with_ort_with_inputs(model, inputs, use_vm=True)
+
+    boxes = np.array(
+        [
+            [
+                [0.0, 0.0, 0.3, 0.3],
+                [0.0, 0.0, 0.4, 0.4],
+                [0.0, 0.0, 0.5, 0.5],
+                [0.5, 0.5, 0.9, 0.9],
+                [0.5, 0.5, 1.0, 1.0],
+            ],
+            [
+                [0.0, 0.0, 0.3, 0.3],
+                [0.0, 0.0, 0.4, 0.4],
+                [0.5, 0.5, 0.95, 0.95],
+                [0.5, 0.5, 0.96, 0.96],
+                [0.5, 0.5, 1.0, 1.0],
+            ],
+        ]
+    ).astype("float32")
+
+    scores = np.array(
+        [
+            [[0.1, 0.2, 0.6, 0.3, 0.9], [0.1, 0.2, 0.6, 0.3, 0.9]],
+            [[0.1, 0.2, 0.6, 0.3, 0.9], [0.1, 0.2, 0.6, 0.3, 0.9]],
+        ]
+    ).astype("float32")
+    max_output_boxes_per_class = np.array(2).astype("int64")
+    iou_threshold = np.array(0.8).astype("float32")
+    output_dims = [8, 3]
+    verify_nms(boxes, scores, max_output_boxes_per_class, iou_threshold, None, output_dims)
+
+    boxes = np.array(
+        [
+            [
+                [0.0, 0.0, 1.0, 1.0],
+                [0.0, 0.1, 1.0, 1.1],
+                [0.0, -0.1, 1.0, 0.9],
+                [0.0, 10.0, 1.0, 11.0],
+                [0.0, 10.1, 1.0, 11.1],
+                [0.0, 100.0, 1.0, 101.0],
+            ]
+        ]
+    ).astype(np.float32)
+    scores = np.array([[[0.9, 0.75, 0.6, 0.95, 0.5, 0.3]]]).astype(np.float32)
+    max_output_boxes_per_class = np.array([3]).astype(np.int64)
+    iou_threshold = np.array([0.5]).astype(np.float32)
+    score_threshold = np.array([0.4]).astype(np.float32)
+    output_dims = [2, 3]
+    verify_nms(
+        boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold, output_dims
+    )
+
+
 def verify_cond_loop():
     y_in = helper.make_tensor_value_info("y_in", TensorProto.FLOAT, [1])
     y_out = helper.make_tensor_value_info("y_out", TensorProto.FLOAT, [1])
@@ -3916,79 +4007,7 @@ def test_size():
 
 
 if __name__ == "__main__":
-    test_flatten()
-    test_reshape()
-    test_shape()
-    test_expand()
-    test_power()
-    test_squeeze()
-    test_unsqueeze()
-    test_slice()
-    test_floor()
-    test_ceil()
-    test_round()
-    test_isinf()
-    test_isnan()
-    test_clip()
-    test_clip_min_max_as_inputs()
-    test_onehot()
-    test_matmul()
-    test_gather()
-    test_gatherelements()
-    test_gather_nd()
-    test_scatter()
-    test_lrn()
-    test_instance_norm()
-    test_upsample()
-    test_forward_min()
-    test_forward_max()
-    test_forward_mean()
-    test_forward_hardsigmoid()
-    test_forward_arg_min_max()
-    test_softmax()
-    test_constantofshape()
-    test_all_reduce_funcs()
-    test_pad()
-    test_split()
-    test_binary_ops()
-    test_single_ops()
-    test_leaky_relu()
-    test_elu()
-    test_selu()
-    test_prelu()
-    test_ThresholdedRelu()
-    test_ScaledTanh()
-    test_ParametricSoftplus()
-    test_Scale()
-    test_LogSoftmax()
-    test_resnet()
-    test_inception()
-    test_densenet()
-    test_sign()
-    test_not()
-    test_and()
-    test_tile()
-    test_erf()
-    test_where()
-    test_or()
-    test_depth_to_space()
-    test_space_to_depth()
-    test_batch_norm()
-    test_batch_norm_dynamic_subgraph()
-    test_conv()
-    test_convtranspose()
-    test_unsqueeze_constant()
-    test_pooling()
-    test_lppool()
-    test_lstm()
-    test_gru()
-    test_resize()
-    test_nonzero()
-    test_topk()
-    test_mod()
-    test_xor()
-    test_max_roi_pool()
-    test_roi_align()
-    test_range()
-    test_loop()
-    test_size()
+    import sys
+    import pytest
+
+    pytest.main(sys.argv)
