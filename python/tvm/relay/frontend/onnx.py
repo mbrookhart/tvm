@@ -113,8 +113,8 @@ def get_info(info_proto):
     shape = []
     for dim in info_proto.type.tensor_type.shape.dim:
         value = dim.dim_value
-        if value is None:
-            value = _ty.Any
+        if value is None or value == 0:
+            value = _ty.Any()
         shape.append(value)
 
     name = info_proto.name
@@ -1883,7 +1883,7 @@ class Resize(OnnxOpConverter):
             )
 
         scale = inputs[1]
-        size = _op.cast(_op.shape_of(inputs[0]), infer_type(scale).type_annotation.dtype) * scale
+        size = _op.cast(_op.shape_of(inputs[0]), infer_type(scale).checked_type.dtype) * scale
 
         layout = "NCHW"  # ONNX assumes NCHW layout
         out_size = _op.strided_slice(size, [2], [4])
@@ -1911,7 +1911,7 @@ class Resize(OnnxOpConverter):
         else:
             assert len(scale_shape) != 0, "One of scale or size should be passed."
             size = (
-                _op.cast(_op.shape_of(inputs[0]), infer_type(scale).type_annotation.dtype) * scale
+                _op.cast(_op.shape_of(inputs[0]), infer_type(scale).checked_type.dtype) * scale
             )
 
         coord_trans = attr.get("coordinate_transformation_mode")
@@ -2122,8 +2122,9 @@ class Loop(OnnxOpConverter):
         scan_output_init = []
         for i in range(num_scan_outputs):
             name, shape, dtype = get_info(body.output[i + 1 + num_deps])
-            scan_output_vars.append(_expr.var(name, shape=([_ty.Any()] + shape), dtype=dtype))
-            scan_output_init.append(_op.reshape(_expr.const([]), [0] + shape))
+            if dtype=="float": dtype="float32"
+            scan_output_vars.append(_expr.var(name, shape=([_ty.Any()] * (len(shape) + 1)), dtype=dtype))
+            scan_output_init.append(_op.reshape(_expr.const(np.array([]).astype(dtype)), [0] + [1] * len(shape)))
 
         # Now we can remove loop iter variables from our inner loop's inputs.
         # This is kind of a hack since we have graph inputs that we don't
@@ -2148,23 +2149,25 @@ class Loop(OnnxOpConverter):
 
             # Get the output of the current loop using the updated inputs.
             with subgraph_scope:
-                loop_outputs = subgraph_scope.from_onnx(body, 11, get_output_expr=True)
+                loop_outputs = subgraph_scope.from_onnx(body, graph_scope._opset, get_output_expr=True)
             # Unpack the body outputs and prepare variables for next iteration.
             new_cond = loop_outputs[0]
             new_loop_vars = [loop_outputs[i] for i in range(1, 1 + num_deps)]
             new_scan_outputs = [loop_outputs[i] for i in range(1 + num_deps, len(loop_outputs))]
 
+            # Add new scan outputs to tracking
+            combined_scan_outputs = []
+            for i, scan in enumerate(scan_outputs):
+                new_shape = _op.shape_of(new_scan_outputs[i], dtype=iter_dtype)
+                new_scan = _op.expand_dims(new_scan_outputs[i], axis=0)
+                scan = _op.broadcast_to(scan, _op.concatenate([_op.reshape(loop_count, [1]), new_shape], axis=0))
+                combined_scan = _op.concatenate([scan, new_scan], axis=0)
+                combined_scan_outputs.append(combined_scan)
+
             # Increment counter.
             if max_loop_count is not None:
                 incr = _expr.const(1, dtype=iter_dtype)
                 loop_count = loop_count + incr
-
-            # Add new scan outputs to tracking
-            combined_scan_outputs = []
-            for i, scan in enumerate(scan_outputs):
-                new_scan = _op.expand_dims(new_scan_outputs[i], axis=0)
-                combined_scan = _op.concatenate([scan, new_scan], axis=0)
-                combined_scan_outputs.append(combined_scan)
 
             # Pack loop outputs for next iteration
             # [iter_count, cond, loop_deps, loop_scans]
@@ -2383,6 +2386,7 @@ class GraphProto:
         self._num_param = 0
         self._shape = shape if shape else {}
         self._dtype = dtype
+        self._opset = 0
 
     def __enter__(self):
         self._old_manager = GraphProto.current
@@ -2438,6 +2442,8 @@ class GraphProto:
         params : dict
             A dict of name: tvm.nd.array pairs, used as pretrained weights
         """
+        self._opset = opset
+
         # parse network inputs to relay, aka parameters
         for init_tensor in graph.initializer:
             if not init_tensor.name.strip():
