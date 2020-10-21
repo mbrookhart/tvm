@@ -1871,6 +1871,25 @@ class Resize(OnnxOpConverter):
     """Operator converter for Resize"""
 
     @classmethod
+    def _impl_v10(cls, inputs, attr, params):
+        mode = attr.get("mode")
+        if mode == b"nearest":
+            method = "nearest_neighbor"
+        elif mode == b"linear":
+            method = "bilinear"
+        else:
+            raise tvm.error.OpAttributeInvalid(
+                'Value {} in attribute "mode" of operator Resize is not valid.'.format(mode)
+            )
+
+        scale = inputs[1]
+        size = _op.cast(_op.shape_of(inputs[0]), infer_type(scale).type_annotation.dtype) * scale
+
+        layout = "NCHW"  # ONNX assumes NCHW layout
+        out_size = _op.strided_slice(size, [2], [4])
+        return _op.image.resize(inputs[0], out_size, layout, method, "asymmetric")
+
+    @classmethod
     def _impl_v11(cls, inputs, attr, params):
         mode = attr.get("mode")
         if mode == b"nearest":
