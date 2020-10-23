@@ -501,6 +501,9 @@ Array<te::Tensor> StridedSliceCompute(const Attrs& attrs, const Array<te::Tensor
   te::Tensor strides = inputs[3];
   // Dynamic computation
   int64_t data_rank = data->shape.size();
+  std::cout << begin << std::endl;
+  std::cout << end << std::endl;
+  std::cout << strides << std::endl;
   CHECK(begin->shape[0].as<IntImmNode>()->value == data_rank &&
         end->shape[0].as<IntImmNode>()->value == data_rank &&
         strides->shape[0].as<IntImmNode>()->value == data_rank)

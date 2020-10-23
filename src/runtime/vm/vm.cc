@@ -261,6 +261,19 @@ void VirtualMachine::InvokePacked(Index packed_index, const PackedFunc& func, In
   TVMRetValue rv;
   func.CallPacked(TVMArgs(values.data(), codes.data(), arity), &rv);
 }
+std::ostream& operator<<(std::ostream& out, const NDArray& array) {
+    static const PackedFunc* fprint = Registry::Get("relay._ndarray_repr");
+    CHECK(fprint);
+    std::string data = (*fprint)(array);
+    out << data;
+    return out;
+}
+
+void print(const ObjectRef& arg) {
+  if (arg->IsInstance<NDArray::ContainerType>()) {
+    std::cout << "\t" << Downcast<NDArray>(arg) << std::endl;
+  }
+}
 
 void VirtualMachine::LoadExecutable(const Executable* exec) {
   CHECK(exec) << "The executable is not created yet.";
@@ -280,6 +293,7 @@ void VirtualMachine::LoadExecutable(const Executable* exec) {
     tvm::runtime::PackedFunc pf = lib.GetFunction(packed_name, true);
     CHECK(pf != nullptr) << "Cannot find function in module: " << packed_name;
     packed_funcs_[packed_index] = pf;
+    std::cout << packed_name << " -> " << packed_index <<std::endl;
   }
   for (size_t i = 0; i < packed_funcs_.size(); ++i) {
     CHECK(packed_funcs_[i] != nullptr) << "Packed function " << i << " is not initialized";
@@ -398,6 +412,7 @@ void VirtualMachine::RunLoop() {
       }
       case Opcode::InvokePacked: {
         DLOG(INFO) << "InvokedPacked " << instr.packed_index << " arity=" << instr.arity;
+        std::cout << instr << std::endl;
         CHECK_LE(instr.packed_index, packed_funcs_.size());
         const auto& func = packed_funcs_[instr.packed_index];
         const auto& arity = instr.arity;
@@ -406,6 +421,7 @@ void VirtualMachine::RunLoop() {
           DLOG(INFO) << "arg" << i << " $" << instr.packed_args[i];
           auto arg = ReadRegister(instr.packed_args[i]);
           args.push_back(arg);
+          print(arg);
         }
 
         // We no longer need to write the registers back, we write directly
