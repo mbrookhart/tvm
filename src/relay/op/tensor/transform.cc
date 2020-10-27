@@ -466,7 +466,7 @@ Array<IndexExpr> infer_newshape(const Array<IndexExpr>& data_shape, const Attrs&
     ishape = data_shape;
     newshape = param->newshape;
   }
-
+  
   std::unordered_set<size_t> used_input_dims;
   std::unordered_set<size_t> used_output_dims;
   size_t src_idx = 0;
@@ -591,7 +591,6 @@ bool ReshapeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
         << "reshape: expect input type to be TensorType but get " << types[0];
     return false;
   }
-
   const auto& oshape = infer_newshape(data->shape, attrs);
 
   // Verify that the sum of dimensions in the output shape is the sum of

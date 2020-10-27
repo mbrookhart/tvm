@@ -53,6 +53,7 @@ def get_tvm_output_with_vm(
     mod, params = relay.frontend.from_onnx(
         graph_def, shape_dict, opset=opset, freeze_params=freeze_params
     )
+    mod = relay.transform.AnnotateSpans()(mod)
     if convert_to_static:
         from tvm.relay import transform
 
@@ -146,7 +147,6 @@ def verify_with_ort_with_inputs(
 
     for target in targets:
         ctx = tvm.context(target, 0)
-        print(target, ctx)
         if target == "cuda" or target == "nvptx":continue
         if use_vm:
             tvm_out = get_tvm_output_with_vm(
@@ -160,7 +160,6 @@ def verify_with_ort_with_inputs(
             )
         else:
             tvm_out = get_tvm_output(model, inputs, target, ctx, out_shape, dtype, opset=opset)
-        print(ort_out, tvm_out)
         tvm.testing.assert_allclose(flatten(ort_out), flatten(tvm_out), rtol=rtol, atol=atol)
 
 

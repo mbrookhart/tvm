@@ -599,6 +599,7 @@ class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
     Type checked_type = solver_->Resolve(it->second.checked_type);
 
     if (checked_type.as<IncompleteTypeNode>() != nullptr) {
+      std::cout << GetRef<Expr>(op) << std::endl;
       this->solver_->diag_ctx_.Emit(
           Diagnostic::Error(op->span)
           << "The type inference pass was unable to infer a type for this expression.\n"

@@ -234,7 +234,7 @@ inline Tensor reshape(const Tensor& x, Array<PrimExpr> newshape, std::string nam
                       std::string tag = kInjective) {
   auto x_shape = x->shape;
   Array<PrimExpr> target_shape;
-
+  
   for (const auto& ele : newshape) {
     if (ele.as<IntImmNode>()) {
       target_shape.push_back(cast(DataType::Int(32), ele));
