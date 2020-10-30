@@ -54,6 +54,11 @@ def get_tvm_output_with_vm(
         graph_def, shape_dict, opset=opset, freeze_params=freeze_params
     )
 
+    from tvm.relay import transform
+    # print(mod.astext(show_meta_data=True))
+    # self.mod = transform.AnnotateSpans()(mod)
+    # print(mod.astext(show_meta_data=False))
+
     if convert_to_static:
         from tvm.relay import transform
 
@@ -3732,7 +3737,6 @@ def test_non_max_suppression():
 
         verify_with_ort_with_inputs(model, inputs, use_vm=True)
 
-    print("start first test")
     boxes = np.array(
         [
             [
@@ -3762,9 +3766,7 @@ def test_non_max_suppression():
     iou_threshold = np.array(0.8).astype("float32")
     output_dims = [8, 3]
     verify_nms(boxes, scores, max_output_boxes_per_class, iou_threshold, None, output_dims)
-    print("end first test")
 
-    print("start second test")
     boxes = np.array(
         [
             [
@@ -3785,7 +3787,6 @@ def test_non_max_suppression():
     verify_nms(
         boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold, output_dims
     )
-    print("end second test")
 
 
 def verify_cond_loop():
@@ -3940,78 +3941,6 @@ def test_loop():
 
 
 if __name__ == "__main__":
-    test_flatten()
-    test_reshape()
-    test_shape()
-    test_expand()
-    test_power()
-    test_squeeze()
-    test_unsqueeze()
-    test_slice()
-    test_floor()
-    test_ceil()
-    test_round()
-    test_isinf()
-    test_isnan()
-    test_clip()
-    test_clip_min_max_as_inputs()
-    test_onehot()
-    test_matmul()
-    test_gather()
-    test_gatherelements()
-    test_gather_nd()
-    test_scatter()
-    test_lrn()
-    test_instance_norm()
-    test_upsample()
-    test_forward_min()
-    test_forward_max()
-    test_forward_mean()
-    test_forward_hardsigmoid()
-    test_forward_arg_min_max()
-    test_softmax()
-    test_constantofshape()
-    test_all_reduce_funcs()
-    test_pad()
-    test_split()
-    test_binary_ops()
-    test_single_ops()
-    test_leaky_relu()
-    test_elu()
-    test_selu()
-    test_prelu()
-    test_ThresholdedRelu()
-    test_ScaledTanh()
-    test_ParametricSoftplus()
-    test_Scale()
-    test_LogSoftmax()
-    test_resnet()
-    test_inception()
-    test_densenet()
-    test_sign()
-    test_not()
-    test_and()
-    test_tile()
-    test_erf()
-    test_where()
-    test_or()
-    test_depth_to_space()
-    test_space_to_depth()
-    test_batch_norm()
-    test_batch_norm_dynamic_subgraph()
-    test_conv()
-    test_convtranspose()
-    test_unsqueeze_constant()
-    test_pooling()
-    test_lppool()
-    test_lstm()
-    test_gru()
-    test_resize()
-    test_nonzero()
-    test_topk()
-    test_mod()
-    test_xor()
-    test_max_roi_pool()
-    test_roi_align()
-    test_range()
-    test_loop()
+    import sys
+    import pytest
+    pytest.main(sys.argv)
