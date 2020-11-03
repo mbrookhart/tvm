@@ -55,6 +55,7 @@ def get_tvm_output_with_vm(
     )
 
     from tvm.relay import transform
+
     # print(mod.astext(show_meta_data=True))
     # self.mod = transform.AnnotateSpans()(mod)
     # print(mod.astext(show_meta_data=False))
@@ -3940,4 +3941,5 @@ def test_loop():
 if __name__ == "__main__":
     import sys
     import pytest
+
     pytest.main(sys.argv)

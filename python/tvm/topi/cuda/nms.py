@@ -98,10 +98,6 @@ def get_valid_counts_ir(
     valid_count = ib.buffer_ptr(valid_count)
     out = ib.buffer_ptr(out)
     out_indices = ib.buffer_ptr(out_indices)
-    atomic_add_return = ib.allocate(
-        valid_count.dtype, (1,), name="atomic_add_return", scope="local"
-    )
-    one_count = tvm.tir.const(1, dtype=valid_count.dtype)
     one = tvm.tir.const(1, dtype=out.dtype)
     if isinstance(score_threshold, float):
         score_threshold = tvm.ir.make_node("FloatImm", dtype="float32", value=score_threshold)

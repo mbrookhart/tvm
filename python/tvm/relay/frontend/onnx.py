@@ -2235,12 +2235,8 @@ class NonMaxSuppression(OnnxOpConverter):
         one = _op.const(np.array([1]), dtype="int64")
         two = _op.const(np.array([2]), dtype="int64")
         three = _op.const(np.array([3]), dtype="int64")
-        two_ones = _op.const(np.array([1, 1]), dtype="int64")
         three_ones = _op.const(np.array([1, 1, 1]), dtype="int64")
         four_ones = _op.const(np.array([1, 1, 1, 1]), dtype="int64")
-
-        def pad_last_dim(x):
-            return _op.expand_dims(x, -1, 1)
 
         # First Loop Vars
         i = _expr.var("i", shape=(1,), dtype="int64")
