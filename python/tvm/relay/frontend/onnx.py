@@ -2233,6 +2233,7 @@ class NonMaxSuppression(OnnxOpConverter):
         score_threshold = conditionally_squeeze_scalar(score_threshold)
         zero = _op.const(np.array([0]), dtype="int64")
         one = _op.const(np.array([1]), dtype="int64")
+        two = _op.const(np.array([2]), dtype="int64")
         three = _op.const(np.array([3]), dtype="int64")
         two_ones = _op.const(np.array([1, 1]), dtype="int64")
         three_ones = _op.const(np.array([1, 1, 1]), dtype="int64")
@@ -2372,11 +2373,11 @@ class NonMaxSuppression(OnnxOpConverter):
             return _op.min(_op.less(j, C))
 
         def _inner_body(i, j, C, onnx_out, nms_size, out):
-            start = _op.concatenate([i, j, zero], axis=0)
-            end = _op.concatenate([i + one, j + one, one], axis=0)
+            start = _op.concatenate([i, j + one, zero], axis=0)
+            end = _op.concatenate([i + one, j + two, one], axis=0)
             num_valid_boxes = _op.reshape(_op.strided_slice(nms_size, start, end, three_ones), [1])
-            start = _op.concatenate([i, j, zero, zero], axis=0)
-            end = _op.concatenate([i + one, j + one, num_valid_boxes, three], axis=0)
+            start = _op.concatenate([i, j + one, zero, zero], axis=0)
+            end = _op.concatenate([i + one, j + two, num_valid_boxes, three], axis=0)
             new_out = _op.squeeze(_op.strided_slice(onnx_out, start, end, four_ones), [0, 1])
             return i, j + one, C, onnx_out, nms_size, _op.concatenate([out, new_out], axis=0)
 
@@ -2409,10 +2410,10 @@ class NonMaxSuppression(OnnxOpConverter):
 
         B, C, S = _op.split(_op.shape_of(scores, dtype="int64"), 3)
         init_count = _op.const(np.array([0]), dtype="int64")
-        init_onnx_out = _op.const([], dtype="int64")
-        init_onnx_out = _op.broadcast_to(init_onnx_out, _op.concatenate([B, zero, S, three], 0))
-        init_nms_size_out = _op.const([], dtype="int64")
-        init_nms_size_out = _op.broadcast_to(init_nms_size_out, _op.concatenate([B, zero, one], 0))
+        init_onnx_out = _op.const([1], dtype="int64")
+        init_onnx_out = _op.broadcast_to(init_onnx_out, _op.concatenate([B, one, S, three], 0))
+        init_nms_size_out = _op.const([1], dtype="int64")
+        init_nms_size_out = _op.broadcast_to(init_nms_size_out, _op.concatenate([B, one, one], 0))
         loop_vals = first_loop(
             init_count,
             scores,

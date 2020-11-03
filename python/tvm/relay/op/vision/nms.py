@@ -48,7 +48,7 @@ def get_valid_counts(data, score_threshold, id_index=0, score_index=1):
     out_indices: relay.Expr
         Indices in input data
     """
-    if isinstance(score_threshold, float):
+    if not isinstance(score_threshold, expr.Expr):
         score_threshold = expr.const(score_threshold, "float32")
     return expr.TupleWrapper(
         _make.get_valid_counts(data, score_threshold, id_index, score_index), 3
