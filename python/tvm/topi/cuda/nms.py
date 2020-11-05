@@ -20,7 +20,6 @@
 import tvm
 from tvm import te
 
-from tvm.relay import expr
 from tvm.tir import if_then_else
 from .sort import argsort, argsort_thrust
 from .. import tag
@@ -175,8 +174,6 @@ def get_valid_counts(data, score_threshold=0, id_index=0, score_index=1):
     out_indices_buf = tvm.tir.decl_buffer(
         (batch_size, num_anchors), "int32", "out_buf", data_alignment=8
     )
-    if isinstance(score_threshold, float):
-        score_threshold = expr.const(score_threshold, "float32")
 
     valid_count, out, out_indices = te.extern(
         [(batch_size,), data.shape, (batch_size, num_anchors)],
@@ -542,11 +539,6 @@ def non_max_suppression(
     indices_buf = tvm.tir.decl_buffer(indices.shape, indices.dtype, "indices_buf", data_alignment=8)
 
     data_buf = tvm.tir.decl_buffer(data.shape, data.dtype, "data_buf", data_alignment=8)
-
-    if isinstance(max_output_size, int):
-        max_output_size = expr.const(max_ouput_size, "float32")
-    if isinstance(iou_threshold, float):
-        iou_threshold = expr.const(iou_threshold, "float32")
 
     out, box_indices = te.extern(
         [data.shape, score_shape],
