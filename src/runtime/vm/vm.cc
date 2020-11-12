@@ -292,7 +292,7 @@ void VirtualMachine::Init(const std::vector<TVMContext>& ctxs,
   // Cache the context
   for (size_t i = 0; i < ctxs.size(); i++) {
     auto dev_type = static_cast<size_t>(ctxs[i].device_type);
-    auto alloc = MemoryManager::GetOrCreateAllocator(ctxs[i], alloc_types[i]);
+    auto alloc = MemoryManager::GetOrCreateAllocator(ctxs[i], kNaive);
     if (ctxs_.size() <= dev_type) {
       ctxs_.resize(dev_type + 1);
       allocators_.resize(dev_type + 1);
@@ -342,13 +342,26 @@ inline int64_t VirtualMachine::LoadScalarInt(Index r) const {
   return result;
 }
 
+std::ostream& operator<<(std::ostream& out, const NDArray& array) {
+    static const PackedFunc* fprint = Registry::Get("relay._ndarray_repr");
+    CHECK(fprint);
+    std::string data = (*fprint)(array);
+    out << data;
+    return out;
+}
+
+void print(const ObjectRef& arg) {
+  if (arg->IsInstance<NDArray::ContainerType>()) {
+    std::cout << "\t" << Downcast<NDArray>(arg) << std::endl;
+  }
+}
+
 void VirtualMachine::RunLoop() {
   ICHECK(this->exec_);
   ICHECK(this->code_);
   pc_ = 0;
   Index frame_start = frames_.size();
   while (true) {
-  main_loop:
     auto const& instr = code_[this->pc_];
     DLOG(INFO) << "Executing(" << pc_ << "): " << instr;
 
@@ -358,7 +371,7 @@ void VirtualMachine::RunLoop() {
         from_obj = ReadRegister(instr.from);
         WriteRegister(instr.dst, from_obj);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::Fatal: {
         throw std::runtime_error("VM encountered fatal error");
@@ -378,14 +391,14 @@ void VirtualMachine::RunLoop() {
         }
         WriteRegister(instr.dst, const_pool_[instr.const_index]);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::LoadConsti: {
         auto tensor = NDArray::Empty({1}, {kDLInt, 64, 1}, {kDLCPU, 0});
         reinterpret_cast<int64_t*>(tensor->data)[0] = instr.load_consti.val;
         WriteRegister(instr.dst, tensor);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::Invoke: {
         std::vector<ObjectRef> args;
@@ -394,7 +407,7 @@ void VirtualMachine::RunLoop() {
         }
         InvokeGlobal(exec_->functions[instr.func_index], args);
         frames_.back().caller_return_register = instr.dst;
-        goto main_loop;
+        break;
       }
       case Opcode::InvokePacked: {
         DLOG(INFO) << "InvokedPacked " << instr.packed_index << " arity=" << instr.arity;
@@ -402,17 +415,24 @@ void VirtualMachine::RunLoop() {
         const auto& func = packed_funcs_[instr.packed_index];
         const auto& arity = instr.arity;
         std::vector<ObjectRef> args;
+        ///std::cout << "Pre op" << std::endl;
         for (Index i = 0; i < arity; ++i) {
           DLOG(INFO) << "arg" << i << " $" << instr.packed_args[i];
           auto arg = ReadRegister(instr.packed_args[i]);
+          //print(arg);
           args.push_back(arg);
         }
 
         // We no longer need to write the registers back, we write directly
         // through the registers mutably.
         InvokePacked(instr.packed_index, func, arity, instr.output_size, args);
+        ///std::cout << "Post op" << std::endl;
+        for (Index i = 0; i < arity; ++i) {
+          auto arg = args[i];
+          ///print(arg);
+        }
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::InvokeClosure: {
         auto object = ReadRegister(instr.closure);
@@ -427,7 +447,7 @@ void VirtualMachine::RunLoop() {
         }
         InvokeGlobal(exec_->functions[closure->func_index], args);
         frames_.back().caller_return_register = instr.dst;
-        goto main_loop;
+        break;
       }
       case Opcode::GetField: {
         auto object = ReadRegister(instr.object);
@@ -435,7 +455,7 @@ void VirtualMachine::RunLoop() {
         auto field = tuple[instr.field_index];
         WriteRegister(instr.dst, field);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::GetTag: {
         auto object = ReadRegister(instr.get_tag.object);
@@ -445,11 +465,11 @@ void VirtualMachine::RunLoop() {
         reinterpret_cast<int32_t*>(tag_tensor->data)[0] = tag;
         WriteRegister(instr.dst, tag_tensor);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::Goto: {
         pc_ += instr.pc_offset;
-        goto main_loop;
+        break;
       }
       case Opcode::If: {
         int32_t test_val = LoadScalarInt(instr.if_op.test);
@@ -463,7 +483,7 @@ void VirtualMachine::RunLoop() {
           pc_ += instr.if_op.false_offset;
         }
 
-        goto main_loop;
+        break;
       }
       case Opcode::AllocTensor: {
         auto shape = std::vector<int64_t>(instr.alloc_tensor.ndim);
@@ -476,10 +496,9 @@ void VirtualMachine::RunLoop() {
         auto offset = LoadScalarInt(instr.alloc_tensor.offset);
         auto storage = Downcast<Storage>(storage_obj);
         auto obj = storage->AllocNDArray(offset, shape, instr.alloc_tensor.dtype);
-
         WriteRegister(instr.dst, obj);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::AllocTensorReg: {
         DLContext cpu_ctx = GetContext(static_cast<Index>(kDLCPU));
@@ -493,7 +512,7 @@ void VirtualMachine::RunLoop() {
 
         WriteRegister(instr.dst, obj);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::AllocADT: {
         std::vector<ObjectRef> fields;
@@ -503,7 +522,7 @@ void VirtualMachine::RunLoop() {
         ObjectRef obj = ADT(instr.constructor_tag, fields);
         WriteRegister(instr.dst, obj);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::AllocClosure: {
         std::vector<ObjectRef> free_vars;
@@ -512,7 +531,7 @@ void VirtualMachine::RunLoop() {
         }
         WriteRegister(instr.dst, VMClosure(instr.func_index, free_vars));
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::AllocStorage: {
         auto size = LoadScalarInt(instr.alloc_storage.allocation_size);
@@ -532,7 +551,7 @@ void VirtualMachine::RunLoop() {
         Storage storage(storage_obj);
         WriteRegister(instr.dst, storage);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::ShapeOf: {
         auto input = ReadRegister(instr.shape_of.tensor);
@@ -544,7 +563,7 @@ void VirtualMachine::RunLoop() {
         }
         WriteRegister(instr.dst, out_tensor);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::Ret: {
         // If we have hit the point from which we started
@@ -558,7 +577,7 @@ void VirtualMachine::RunLoop() {
           // Otherwise we are just returning from a local call.
         } else {
           WriteRegister(caller_return_register, return_register_);
-          goto main_loop;
+          break;
         }
       }
       case Opcode::ReshapeTensor: {
@@ -578,7 +597,7 @@ void VirtualMachine::RunLoop() {
         auto out_tensor = tensor_arr.CreateView(shape, tensor_arr->dtype);
         WriteRegister(instr.dst, out_tensor);
         pc_++;
-        goto main_loop;
+        break;
       }
       case Opcode::DeviceCopy: {
         auto tensor_src = ReadRegister(instr.src);
@@ -593,7 +612,7 @@ void VirtualMachine::RunLoop() {
         NDArray dst_data = src_data.CopyTo(dst_ctx);
         WriteRegister(instr.dst, dst_data);
         pc_++;
-        goto main_loop;
+        break;
       }
       default:
         LOG(FATAL) << "Unknown instruction opcode: " << int(instr.op);
