@@ -77,6 +77,13 @@ class PooledAllocator final : public Allocator {
  private:
   void ReleaseAll() {
     std::lock_guard<std::mutex> lock(mu_);
+    std::cout << "ReleaseAll" << std::endl;
+    for (auto const& it : memory_pool_) {
+      auto const& pool = it.second;
+      for (auto const& buf : pool) {
+        std::cout << it.first << "\t" << buf.data << std::endl;
+      }
+    }
     for (auto const& it : memory_pool_) {
       auto const& pool = it.second;
       for (auto const& buf : pool) {

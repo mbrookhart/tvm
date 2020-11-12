@@ -22,8 +22,7 @@ from tvm import te
 from tvm import relay
 import tvm.testing
 
-# TODO(mbrookhart): Enable when we can get it working
-# @tvm.testing.uses_gpu
+@tvm.testing.uses_gpu
 def test_dynamic_topk():
     def verify_topk(k, axis, ret_type, is_ascend, dtype):
         shape = (20, 100)
@@ -51,19 +50,31 @@ def test_dynamic_topk():
             for i in range(shape[0]):
                 np_values[i, :] = np_data[i, np_indices[i, :]]
         np_indices = np_indices.astype(dtype)
-
-        for target, ctx in tvm.testing.enabled_targets():
-            for kind in ["vm", "debug"]:
-                mod = tvm.ir.IRModule.from_expr(func)
-                intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
-                op_res = intrp.evaluate()(np_data, np.array([k]).astype("float32"))
-                if ret_type == "both":
-                    tvm.testing.assert_allclose(op_res[0].asnumpy(), np_values)
-                    tvm.testing.assert_allclose(op_res[1].asnumpy(), np_indices)
-                elif ret_type == "values":
-                    tvm.testing.assert_allclose(op_res.asnumpy(), np_values)
-                else:
-                    tvm.testing.assert_allclose(op_res.asnumpy(), np_indices)
+        def trace(module, pass_info, b):
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------")
+            print(pass_info)
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------")
+            print(module)
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------")
+        #with relay.build_config(opt_level=3, trace=trace):
+        with relay.build_config(opt_level=3):
+            for target, ctx in tvm.testing.enabled_targets():
+                for kind in ["vm", "debug"]:
+                    mod = tvm.ir.IRModule.from_expr(func)
+                    intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
+                    op_res = intrp.evaluate()(np_data, np.array([k]).astype("float32"))
+                    if ret_type == "both":
+                        tvm.testing.assert_allclose(op_res[0].asnumpy(), np_values)
+                        tvm.testing.assert_allclose(op_res[1].asnumpy(), np_indices)
+                    elif ret_type == "values":
+                        tvm.testing.assert_allclose(op_res.asnumpy(), np_values)
+                    else:
+                        tvm.testing.assert_allclose(op_res.asnumpy(), np_indices)
 
     np.random.seed(0)
     for k in [0, 1, 5]:

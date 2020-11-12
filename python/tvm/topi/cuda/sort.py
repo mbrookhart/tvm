@@ -21,7 +21,8 @@ from tvm import te
 
 from .injective import schedule_injective_from_existing
 from ..math import identity
-from ..transform import strided_slice, transpose
+from ..transform import strided_slice, transpose, where
+from ..utils import const_vector
 from .. import tag
 
 
@@ -432,7 +433,7 @@ def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
     data : tvm.te.Tensor
         The input tensor.
 
-    k : int, optional
+    k : int, optional or tvm.te.Tensor
         Number of top elements to select. Return all elements if k < 1.
 
     axis : int, optional
@@ -479,17 +480,46 @@ def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
             name="topk_gpu",
             tag="topk_gpu",
         )
-    if k < 1:
-        if ret_type == "indices":
-            return output[1]
-        return output
-    beg = [0] * ndim
-    end = []
-    for i in range(ndim):
-        if i == axis:
-            end.append(k)
-        else:
-            end.append(data.shape[i])
+    if isinstance(k, tvm.te.Tensor):
+        beg = const_vector([0] * ndim)
+
+        def create_end(k, data, axis, out):
+            ib = tvm.tir.ir_builder.create()
+            x1, x2 = data.shape
+            ndim = out.shape[0]
+            k_ptr = ib.buffer_ptr(k)
+            out_ptr = ib.buffer_ptr(out)
+            bx = te.thread_axis("blockIdx.x")
+            ib.scope_attr(bx, "thread_extent", 1)
+            for i in range(len(data.shape)):
+                out_ptr[i] = data.shape[i]
+            with ib.if_scope(k_ptr[0] > 0):
+                out_ptr[axis] = tvm.tir.Cast(out.dtype, k_ptr[0])
+            return ib.get()
+
+        out_shape = [len(data.shape)]
+        out_buf = tvm.tir.decl_buffer(out_shape, "int", "out_buf")
+        end = te.extern(
+            [out_shape],
+            [k, data],
+            lambda ins, outs: create_end(ins[0], ins[1], axis, outs[0]),
+            dtype="int",
+            out_buffers=[out_buf],
+            name="topk_gpu_slice_end",
+            tag="topk_gpu_slice_end",
+        )
+    else:
+        if k < 1:
+            if ret_type == "indices":
+                return output[1]
+            return output
+        beg = [0] * ndim
+        end = []
+        for i in range(ndim):
+            if i == axis:
+                end.append(k)
+            else:
+                end.append(data.shape[i])
     if ret_type == "both":
         values_out, indices_out = output
         values_out = strided_slice(values_out, beg, end)

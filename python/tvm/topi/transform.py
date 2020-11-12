@@ -178,10 +178,10 @@ def strided_slice(a, begin, end, strides=None, slice_mode="end"):
     a : tvm.te.Tensor
         The tensor to be sliced.
 
-    begin : list of int
+    begin : list of int or tvm.te.Tensor
         The indices to begin with in the slicing.
 
-    end : list of int
+    end : list of int or tvm.te.Tensor
         Indicies indicating end of the slice.
 
     strides : list of int, optional
