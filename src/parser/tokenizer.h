@@ -178,7 +178,7 @@ struct Tokenizer {
       }
       auto token = NewToken(TokenType::kInteger);
       size_t index = 0;
-      int value = std::stoi(number, &index);
+      int64_t value = std::stol(number, &index);
       if (number.size() > index) {
         throw std::invalid_argument("floating point");
       }
@@ -194,11 +194,11 @@ struct Tokenizer {
 
       auto suffix = number.substr(suffix_pos + 1, number.size() - suffix_pos);
 
-      int width = 32;
+      int64_t width = 32;
 
       if (suffix.size()) {
         try {
-          width = std::stoi(suffix);
+          width = std::stol(suffix);
         } catch (const std::invalid_argument& err) {
           this->diag_ctx.Emit(Diagnostic::Error(token->span)
                               << "invalid numeric suffix `" << suffix << "`");

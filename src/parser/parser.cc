@@ -1879,7 +1879,7 @@ IRModule ParseModule(std::string file_name, std::string file_content,
   parser.diag_ctx.Render();
   auto infer_type = tvm::relay::transform::InferType();
   ICHECK(infer_type.defined()) << "The type inferencer must be non-null.";
-  return infer_type(mod);
+  return mod;//infer_type(mod);
 }
 
 Expr ParseExpr(std::string file_name, std::string file_content) {
