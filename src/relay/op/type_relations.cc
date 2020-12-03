@@ -104,7 +104,10 @@ bool BroadcastRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   //                 << ",Out:" << types[2] << std::endl;
   if (auto* t0 = types[0].as<TensorTypeNode>()) {
     if (auto* t1 = types[1].as<TensorTypeNode>()) {
-      ICHECK_EQ(t0->dtype, t1->dtype);
+      //ICHECK_EQ(t0->dtype, t1->dtype);
+      if (t0->dtype != t1->dtype) {
+        reporter->GetDiagCtx().Emit(Diagnostic::Error(t0->span) << "data types " << t0->dtype << " and " << t1->dtype << "do not match in broadcast");
+      }
       reporter->Assign(
           types[2], ConcreteBroadcast(GetRef<TensorType>(t0), GetRef<TensorType>(t1), t0->dtype));
       return true;

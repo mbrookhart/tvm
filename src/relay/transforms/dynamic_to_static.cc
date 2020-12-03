@@ -34,6 +34,7 @@ namespace relay {
 
 Expr PrepareInput(const Expr& expr) {
   auto mod = IRModule::FromExpr(expr);
+  std::cout << "Preparing\n" << AsText(mod, false) << std::endl;
   mod = transform::InferType()(mod);
   mod = transform::FoldConstant()(mod);
   if (expr.as<FunctionNode>()) {

@@ -26,6 +26,7 @@ from tvm.topi.utils import get_const_tuple
 from ... import nd as _nd
 from .. import analysis
 from .. import expr as _expr
+from ..expr_functor import ExprMutator
 from .. import function as _function
 from .. import op as _op
 from .. import vision as _vision
@@ -2292,9 +2293,9 @@ class If(OnnxOpConverter):
 
         # Convert each branch to a relay expression.
         with then_graph:
-            then_expr = then_graph.from_onnx(then_branch, graph_scope.opset, get_output_expr=True)
+            then_expr = then_graph.from_onnx(then_branch, graph_scope._opset, get_output_expr=True)
         with else_graph:
-            else_expr = else_graph.from_onnx(else_branch, graph_scope.opset, get_output_expr=True)
+            else_expr = else_graph.from_onnx(else_branch, graph_scope._opset, get_output_expr=True)
 
         # Add constants from both branches to parent graph.
         graph_scope._params.update(then_graph._params)
@@ -3092,4 +3093,17 @@ def from_onnx(model, shape=None, dtype="float32", opset=None, freeze_params=Fals
     # Use the graph proto as a scope so that ops can access other nodes if needed.
     with g:
         mod, params = g.from_onnx(graph, opset, freeze_params)
+    
+    class RenameVars(ExprMutator):
+        def __init__(self):
+            super().__init__()
+
+        def visit_var(self, var):
+            name_hint = var.name_hint.replace(":","_").replace("/","_")
+            if name_hint == var.name_hint:
+                return var
+            return _expr.var(name_hint, var.type_annotation)
+
+    mod["main"] = RenameVars().visit(mod["main"])
+        
     return mod, params
