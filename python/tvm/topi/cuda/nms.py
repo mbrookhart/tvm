@@ -166,37 +166,36 @@ def get_valid_counts_ir(
     score_index = tvm.tir.IntImm("int32", score_index)
 
     max_threads = int(tvm.target.Target.current(allow_none=False).max_num_threads)
-    with ib.new_scope():
-        nthread_tx = max_threads
-        nthread_bx = batch_size // max_threads + 1
-        tx = te.thread_axis("threadIdx.x")
-        bx = te.thread_axis("blockIdx.x")
-        ib.scope_attr(tx, "thread_extent", nthread_tx)
-        ib.scope_attr(bx, "thread_extent", nthread_bx)
-        tid = bx * max_threads + tx
-        with ib.if_scope(tid < batch_size):
-            valid_count[tid] = 0
-            i = tid
-            with ib.for_range(0, num_anchors) as j:
-                score = data[(i * num_anchors + j) * elem_length + score_index]
-                with ib.if_scope(
-                    tvm.tir.all(
-                        score > score_threshold,
-                        tvm.tir.any(
-                            id_index < 0, data[(i * num_anchors + j) * elem_length + id_index] >= 0
-                        ),
-                    )
-                ):
-                    with ib.for_range(0, elem_length) as k:
-                        out[(i * num_anchors + valid_count[i]) * elem_length + k] = data[
-                            (i * num_anchors + j) * elem_length + k
-                        ]
-                    out_indices[i * num_anchors + valid_count[i]] = j
-                    valid_count[i] += 1
-                with ib.if_scope(j >= valid_count[i]):
-                    with ib.for_range(0, elem_length) as k:
-                        out[(i * num_anchors + j) * elem_length + k] = -one
-                    out_indices[i * num_anchors + j] = -1
+    nthread_tx = max_threads
+    nthread_bx = batch_size // max_threads + 1
+    tx = te.thread_axis("threadIdx.x")
+    bx = te.thread_axis("blockIdx.x")
+    ib.scope_attr(tx, "thread_extent", nthread_tx)
+    ib.scope_attr(bx, "thread_extent", nthread_bx)
+    tid = bx * max_threads + tx
+    with ib.if_scope(tid < batch_size):
+        valid_count[tid] = 0
+        i = tid
+        with ib.for_range(0, num_anchors) as j:
+            score = data[(i * num_anchors + j) * elem_length + score_index]
+            with ib.if_scope(
+                tvm.tir.all(
+                    score > score_threshold,
+                    tvm.tir.any(
+                        id_index < 0, data[(i * num_anchors + j) * elem_length + id_index] >= 0
+                    ),
+                )
+            ):
+                with ib.for_range(0, elem_length) as k:
+                    out[(i * num_anchors + valid_count[i]) * elem_length + k] = data[
+                        (i * num_anchors + j) * elem_length + k
+                    ]
+                out_indices[i * num_anchors + valid_count[i]] = j
+                valid_count[i] += 1
+            with ib.if_scope(j >= valid_count[i]):
+                with ib.for_range(0, elem_length) as k:
+                    out[(i * num_anchors + j) * elem_length + k] = -one
+                out_indices[i * num_anchors + j] = -1
     return ib.get()
 
 
@@ -365,13 +364,16 @@ def nms_ir(
 
     ib = tvm.tir.ir_builder.create()
 
+    bx = te.thread_axis("blockIdx.x")
+    ib.scope_attr(bx, "thread_extent", 1)
+
     data = ib.buffer_ptr(data)
     sorted_index = ib.buffer_ptr(sorted_index)
     valid_count = ib.buffer_ptr(valid_count)
     indices = ib.buffer_ptr(indices)
     out = ib.buffer_ptr(out)
     box_indices = ib.buffer_ptr(box_indices)
-    indices = ib.buffer_ptr(indices)
+
     num_valid_boxes = ib.allocate("int32", (1,), name="num_valid_boxes", scope="local")
 
     if isinstance(iou_threshold, float):
@@ -383,90 +385,85 @@ def nms_ir(
     score_index = tvm.tir.IntImm("int32", score_index)
     force_suppress = tvm.tir.IntImm("int32", 1 if force_suppress else 0)
 
-
     max_threads = int(tvm.target.Target.current(allow_none=False).max_num_threads)
 
-    with ib.new_scope():
-        bx = te.thread_axis("blockIdx.x")
-        ib.scope_attr(bx, "thread_extent", 1)
-
-        with ib.for_range(0, batch_size) as i:
-            base_idx = i * num_anchors * box_data_length
-            with ib.if_scope(tvm.tir.all(iou_threshold > 0, valid_count[i] > 0)):
-                # Reorder output
-                nkeep = if_then_else(
-                    tvm.tir.all(top_k > 0, top_k < valid_count[i]), top_k, valid_count[i]
-                )
-                with ib.for_range(0, nkeep) as j:
+    with ib.for_range(0, batch_size) as i:
+        base_idx = i * num_anchors * box_data_length
+        with ib.if_scope(tvm.tir.all(iou_threshold > 0, valid_count[i] > 0)):
+            # Reorder output
+            nkeep = if_then_else(
+                tvm.tir.all(top_k > 0, top_k < valid_count[i]), top_k, valid_count[i]
+            )
+            with ib.for_range(0, nkeep) as j:
+                with ib.for_range(0, box_data_length) as k:
+                    out[(base_idx + j * box_data_length + k)] = data[
+                        (base_idx + sorted_index[i * num_anchors + j] * box_data_length + k)
+                    ]
+                box_indices[i * num_anchors + j] = sorted_index[i * num_anchors + j]
+            with ib.if_scope(tvm.tir.all(top_k > 0, top_k < valid_count[i])):
+                with ib.for_range(0, valid_count[i] - nkeep) as j:
                     with ib.for_range(0, box_data_length) as k:
-                        out[(base_idx + j * box_data_length + k)] = data[
-                            (base_idx + sorted_index[i * num_anchors + j] * box_data_length + k)
-                        ]
-                    box_indices[i * num_anchors + j] = sorted_index[i * num_anchors + j]
-                with ib.if_scope(tvm.tir.all(top_k > 0, top_k < valid_count[i])):
-                    with ib.for_range(0, valid_count[i] - nkeep) as j:
-                        with ib.for_range(0, box_data_length) as k:
-                            out[(base_idx + (j + nkeep) * box_data_length + k)] = -1.0
-                        box_indices[i * num_anchors + (j + nkeep)] = -1
-                # Apply nms
-                with ib.for_range(0, valid_count[i]) as j:
-                    with ib.for_range(0, j) as k:
-                        offset_k = k * box_data_length
+                        out[(base_idx + (j + nkeep) * box_data_length + k)] = -1.0
+                    box_indices[i * num_anchors + (j + nkeep)] = -1
+            # Apply nms
+            with ib.for_range(0, valid_count[i]) as j:
+                with ib.for_range(0, j) as k:
+                    offset_k = k * box_data_length
+                    with ib.if_scope(
+                        tvm.tir.all(
+                            out[base_idx + offset_k + score_index] > 0,
+                            tvm.tir.any(id_index < 0, out[base_idx + offset_k + id_index] >= 0),
+                        )
+                    ):
+                        offset_j = j * box_data_length
                         with ib.if_scope(
                             tvm.tir.all(
+                                j > k,
                                 out[base_idx + offset_k + score_index] > 0,
-                                tvm.tir.any(id_index < 0, out[base_idx + offset_k + id_index] >= 0),
+                                tvm.tir.any(
+                                    id_index < 0, out[base_idx + offset_j + id_index] >= 0
+                                ),
+                                tvm.tir.any(
+                                    force_suppress > 0,
+                                    id_index < 0,
+                                    out[base_idx + offset_k + id_index]
+                                    == out[base_idx + offset_j + id_index],
+                                ),
                             )
                         ):
-                            offset_j = j * box_data_length
-                            with ib.if_scope(
-                                tvm.tir.all(
-                                    j > k,
-                                    out[base_idx + offset_k + score_index] > 0,
-                                    tvm.tir.any(
-                                        id_index < 0, out[base_idx + offset_j + id_index] >= 0
-                                    ),
-                                    tvm.tir.any(
-                                        force_suppress > 0,
-                                        id_index < 0,
-                                        out[base_idx + offset_k + id_index]
-                                        == out[base_idx + offset_j + id_index],
-                                    ),
-                                )
-                            ):
-                                iou = calculate_overlap(
-                                    out,
-                                    base_idx + offset_j + coord_start,
-                                    base_idx + offset_k + coord_start,
-                                )
-                                with ib.if_scope(iou >= iou_threshold):
-                                    out[base_idx + offset_j + score_index] = -1.0
-                                    with ib.if_scope(id_index >= 0):
-                                        out[base_idx + offset_j + id_index] = -1.0
-                                    box_indices[i * num_anchors + j] = -1
-            with ib.else_scope():
-                with ib.for_range(0, valid_count[i]) as j:
-                    offset_j = j * box_data_length
-                    with ib.for_range(0, box_data_length) as k:
-                        out[(base_idx + offset_j + k)] = data[base_idx + offset_j + k]
-                    box_indices[i * num_anchors + j] = j
-            # Set invalid entry to be -1
-            with ib.for_range(0, num_anchors - valid_count[i]) as j:
+                            iou = calculate_overlap(
+                                out,
+                                base_idx + offset_j + coord_start,
+                                base_idx + offset_k + coord_start,
+                            )
+                            with ib.if_scope(iou >= iou_threshold):
+                                out[base_idx + offset_j + score_index] = -1.0
+                                with ib.if_scope(id_index >= 0):
+                                    out[base_idx + offset_j + id_index] = -1.0
+                                box_indices[i * num_anchors + j] = -1
+        with ib.else_scope():
+            with ib.for_range(0, valid_count[i]) as j:
+                offset_j = j * box_data_length
                 with ib.for_range(0, box_data_length) as k:
-                    out[base_idx + (j + valid_count[i]) * box_data_length + k] = -1.0
-                box_indices[i * num_anchors + j + valid_count[i]] = -1
-            # Only return max_output_size number of valid boxes
-            num_valid_boxes[0] = 0
-            with ib.if_scope(max_output_size > 0):
-                with ib.for_range(0, valid_count[i]) as j:
-                    offset_j = j * box_data_length
-                    with ib.if_scope(out[base_idx + offset_j] >= 0):
-                        with ib.if_scope(num_valid_boxes[0] == max_output_size):
-                            with ib.for_range(0, box_data_length) as k:
-                                out[base_idx + offset_j + k] = -1.0
-                            box_indices[i * num_anchors + j] = -1
-                        with ib.else_scope():
-                            num_valid_boxes[0] += 1
+                    out[(base_idx + offset_j + k)] = data[base_idx + offset_j + k]
+                box_indices[i * num_anchors + j] = j
+        # Set invalid entry to be -1
+        with ib.for_range(0, num_anchors - valid_count[i]) as j:
+            with ib.for_range(0, box_data_length) as k:
+                out[base_idx + (j + valid_count[i]) * box_data_length + k] = -1.0
+            box_indices[i * num_anchors + j + valid_count[i]] = -1
+        # Only return max_output_size number of valid boxes
+        num_valid_boxes[0] = 0
+        with ib.if_scope(max_output_size > 0):
+            with ib.for_range(0, valid_count[i]) as j:
+                offset_j = j * box_data_length
+                with ib.if_scope(out[base_idx + offset_j] >= 0):
+                    with ib.if_scope(num_valid_boxes[0] == max_output_size):
+                        with ib.for_range(0, box_data_length) as k:
+                            out[base_idx + offset_j + k] = -1.0
+                        box_indices[i * num_anchors + j] = -1
+                    with ib.else_scope():
+                        num_valid_boxes[0] += 1
 
     if return_indices:
         with ib.new_scope():
