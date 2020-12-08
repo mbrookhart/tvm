@@ -93,88 +93,85 @@ def sort_ir(data, values_out, axis, is_ascend, indices_out=None):
             axis_mul_before *= value
         elif i > axis:
             axis_mul_after *= value
-    max_threads = int(tvm.target.Target.current(allow_none=False).max_num_threads)
+
     ib = tvm.tir.ir_builder.create()
+
+
     data = ib.buffer_ptr(data)
     values_out = ib.buffer_ptr(values_out)
     if indices_out is not None:
         indices_out = ib.buffer_ptr(indices_out)
+    
+    max_threads = int(tvm.target.Target.current(allow_none=False).max_num_threads)
     nthread_tx = max_threads
     nthread_bx = shape[axis] // max_threads + 1
     nthread_by = axis_mul_before
     nthread_bz = axis_mul_after
 
-    #exch0 = ib.allocate(values_out.dtype, (1,), name="changed", scope="shared")
-    #exch1 = ib.allocate(values_out.dtype, (1,), name="changed", scope="shared")
-    #trip = ib.allocate(values_out.dtype, (1,), name="changed", scope="shared")
-    #exch0[0] = 1
-    #exch1[0] = 1
-    #trip[0] =0
+
 
     with ib.new_scope():
         tx = te.thread_axis("threadIdx.x")
         bx = te.thread_axis("blockIdx.x")
-        by = te.thread_axis("blockIdx.y")
-        bz = te.thread_axis("blockIdx.z")
         ib.scope_attr(tx, "thread_extent", nthread_tx)
         ib.scope_attr(bx, "thread_extent", nthread_bx)
+        tid = bx * nthread_tx + tx
+        
+        by = te.thread_axis("blockIdx.y")
+        bz = te.thread_axis("blockIdx.z")
         ib.scope_attr(by, "thread_extent", nthread_by)
         ib.scope_attr(bz, "thread_extent", nthread_bz)
-        tid = bx * nthread_tx + tx
+
+        ## Create shared memory as syncable thread scratch space
+        tmp_values_out = ib.allocate(values_out.dtype, (shape[axis],), name="temp_values_out", scope="shared")
+        if indices_out is not None:
+            tmp_indices_out = ib.allocate(indices_out.dtype, (shape[axis],), name="temp_indices_out", scope="shared")
+            
+        ## Create thread local data for swapping
         temp_data = ib.allocate(values_out.dtype, (1,), name="temp_data", scope="local")
         if indices_out is not None:
             temp_index = ib.allocate(indices_out.dtype, (1,), name="temp_index", scope="local")
-        with ib.new_scope():
-            i = by
-        #with ib.for_range(0, axis_mul_before) as i:
-            #with ib.for_range(0, axis_mul_after) as j:
-            if 1:
-                j = bz
-                base_idx = i * shape[axis] * axis_mul_after + j
-                with ib.if_scope(tid < shape[axis]):
-                    values_out[base_idx + tid * axis_mul_after] = data[base_idx + tid * axis_mul_after]
-                    if indices_out is not None:
-                        indices_out[base_idx + tid * axis_mul_after] = tvm.tir.generic.cast(
-                            tid, indices_out.dtype
-                        )
+
+        ## Copy data to scratch space
+        base_idx = by * shape[axis] * axis_mul_after + bz
+        with ib.if_scope(tid < shape[axis]):
+            tmp_values_out[tid] = data[base_idx + tid * axis_mul_after]
+            if indices_out is not None:
+                tmp_indices_out[tid] = tvm.tir.generic.cast(
+                    tid, indices_out.dtype
+                )
         ib.emit(tvm.tir.Call(None, "tir.tvm_storage_sync", tvm.runtime.convert(["shared"])))
+        
         idxd = tvm.tir.indexdiv
         idxm = tvm.tir.indexmod
-    
         
+        ## sort
+        current_sort_num = shape[axis]
+        with ib.for_range(0, current_sort_num) as k:
+            # OddEvenTransposeSort
+            base_idx = by * current_sort_num * axis_mul_after + bz
+            with ib.if_scope(tvm.tir.all(tid < current_sort_num - 1, idxm(tid + k, 2) == 0)):
+                if is_ascend:
+                    cond = tmp_values_out[tid] > tmp_values_out[tid + 1]
+                else:
+                    cond = tmp_values_out[tid] < tmp_values_out[tid + 1]
+                with ib.if_scope(cond):
+                    temp_data[0] = tmp_values_out[tid]
+                    tmp_values_out[tid] = tmp_values_out[tid + 1]
+                    tmp_values_out[tid + 1] = temp_data[0]
+                    if indices_out is not None:
+                        temp_index[0] = tmp_indices_out[tid]
+                        tmp_indices_out[tid] = tmp_indices_out[tid + 1]
+                        tmp_indices_out[tid + 1] = temp_index[0]
+            ib.emit(tvm.tir.Call(None, "tir.tvm_storage_sync", tvm.runtime.convert(["shared"])))
 
-        #with ib.for_range(0, axis_mul_before) as i:
-        with ib.new_scope():
-            i = by
-            #with ib.for_range(0, axis_mul_after) as j:
-            if 1:
-                j = bz
-                current_sort_num = shape[axis]
-                base_idx = i * shape[axis] * axis_mul_after + j
-                # OddEvenTransposeSort
+        ## Copy sorted data to output
+        base_idx = by * shape[axis] * axis_mul_after + bz
+        with ib.if_scope(tid < shape[axis]):
+            values_out[base_idx + tid * axis_mul_after] = tmp_values_out[tid]
+            if indices_out is not None:
+                indices_out[base_idx + tid * axis_mul_after] = tmp_indices_out[tid]
 
-                with ib.for_range(0, current_sort_num) as k:
-                    with ib.if_scope(tid < idxd(current_sort_num + 1, 2)):
-                        offset = base_idx + (2 * tid + idxm(k, 2)) * axis_mul_after
-                        if is_ascend:
-                            cond = tvm.tir.all(
-                                2 * tid + idxm(k, 2) + 1 < current_sort_num,
-                                values_out[offset] > values_out[offset + axis_mul_after],
-                            )
-                        else:
-                            cond = tvm.tir.all(
-                                2 * tid + idxm(k, 2) + 1 < current_sort_num,
-                                values_out[offset] < values_out[offset + axis_mul_after],
-                            )
-                        with ib.if_scope(cond):
-                            temp_data[0] = values_out[offset]
-                            values_out[offset] = values_out[offset + axis_mul_after]
-                            values_out[offset + axis_mul_after] = temp_data[0]
-                            if indices_out is not None:
-                                temp_index[0] = indices_out[offset]
-                                indices_out[offset] = indices_out[offset + axis_mul_after]
-                                indices_out[offset + axis_mul_after] = temp_index[0]
-                    ib.emit(tvm.tir.Call(None, "tir.tvm_storage_sync", tvm.runtime.convert(["shared"])))
 
     return ib.get()
 

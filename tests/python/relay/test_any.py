@@ -237,7 +237,7 @@ def verify_any_argwhere(x_shape, x_np_shape, dtype="bool"):
     mod["main"] = relay.Function([x], y)
     data = np.random.choice([0, 1, 2, 3], size=x_np_shape).astype(dtype)
     expected = np.argwhere(data)
-    check_result([data], mod, expected, flatten=True)
+    check_result([data], mod, expected, flatten=True, disable_targets="nvptx")
 
 
 # TODO(zhiics) Enable argwhere gpu test after sort is fixed. Otherwise, we have
