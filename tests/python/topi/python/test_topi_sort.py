@@ -35,7 +35,7 @@ _topk_implement = {
 
 
 def verify_argsort(axis, is_ascend):
-    dshape = (20, 100)
+    dshape = (2000, 2000)
     data_dtype = "float32"
     data = te.placeholder(dshape, name="data", dtype=data_dtype)
 
@@ -67,10 +67,15 @@ def verify_argsort(axis, is_ascend):
         tvm_data = tvm.nd.array(np_data, ctx)
         tvm_out = tvm.nd.array(np.zeros(dshape, dtype=data_dtype), ctx)
         f = tvm.build(s, [data, out], device)
-        f(tvm_data, tvm_out)
+        import time
+        t0 = time.time()
+        for i in range(100):
+            f(tvm_data, tvm_out)
+        print("axis", axis, "time", (time.time() - t0) / 100)
         tvm.testing.assert_allclose(tvm_out.asnumpy(), np_indices.astype(data_dtype), rtol=1e0)
 
-    for device in ["llvm", "cuda", "opencl"]:
+    #for device in ["llvm", "cuda", "opencl"]:
+    for device in ["cuda"]:#["llvm", "cuda", "opencl"]:
         check_device(device)
 
 
