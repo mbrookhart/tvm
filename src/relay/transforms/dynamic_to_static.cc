@@ -34,9 +34,10 @@ namespace relay {
 
 Expr PrepareInput(const Expr& expr) {
   auto mod = IRModule::FromExpr(expr);
-  std::cout << "Preparing\n" << AsText(mod, false) << std::endl;
-  mod = transform::InferType()(mod);
+  std::cout << "Preparing\n" << AsText(mod->Lookup("main"), false) << std::endl;
   mod = transform::FoldConstant()(mod);
+  mod = transform::InferType()(mod);
+  std::cout << "After Preparation\n" << AsText(mod->Lookup("main"), false) << std::endl;
   if (expr.as<FunctionNode>()) {
     return mod->Lookup("main");
   } else {
@@ -256,6 +257,7 @@ class DynamicToStaticMutator : public MixedModeMutator {
     auto post = MixedModeMutator::DispatchVisitExpr(expr);
     if (auto op = post.as<FunctionNode>()) {
       return Function(op->params, op->body, NullValue<Type>(), op->type_params, op->attrs);
+      std::cout << "After DynamicToStatic\n" << AsText(post, false) << std::endl;
     }
     return post;
   }
