@@ -34,10 +34,10 @@ namespace relay {
 
 Expr PrepareInput(const Expr& expr) {
   auto mod = IRModule::FromExpr(expr);
-  std::cout << "Preparing\n" << AsText(mod->Lookup("main"), false) << std::endl;
   mod = transform::FoldConstant()(mod);
   mod = transform::InferType()(mod);
-  std::cout << "After Preparation\n" << AsText(mod->Lookup("main"), false) << std::endl;
+  mod = transform::FoldConstant()(mod);
+  mod = transform::InferType()(mod);
   if (expr.as<FunctionNode>()) {
     return mod->Lookup("main");
   } else {
@@ -146,15 +146,19 @@ class DynamicToStaticMutator : public MixedModeMutator {
         {Op::Get("dyn.full"),
          [](const CallNode* call_node) {
            auto args = PrepareArgs(call_node);
-           std::cout << "----------------dyn.full args---------------------" << std::endl;
-           std::cout << AsText(args[0], false) << std::endl;
-           std::cout << AsText(args[1], false) << std::endl;
-           std::cout << "--------------------------------------------------" << std::endl;
+           //std::cout << "----------------dyn.full args---------------------" << std::endl;
+           //std::cout << AsText(args[0], false) << std::endl;
+           //std::cout << AsText(args[1], false) << std::endl;
+           //std::cout << "--------------------------------------------------" << std::endl;
            if (const ConstantNode* shape = args[1].as<ConstantNode>()) {
              ICHECK_EQ(shape->data->ndim, 1);
              const InitOpAttrs* param = call_node->attrs.as<InitOpAttrs>();
              ICHECK(param);
              return MakeFull(call_node->args[0], ToVector(shape->data), param->dtype);
+           } else {
+             //std::cout << "----------------dyn.full shape---------------------" << std::endl;
+             //std::cout << AsText(args[1], false) << std::endl;
+             //std::cout << "--------------------------------------------------" << std::endl;
            }
            return Expr(nullptr);
          }},
@@ -257,7 +261,6 @@ class DynamicToStaticMutator : public MixedModeMutator {
     auto post = MixedModeMutator::DispatchVisitExpr(expr);
     if (auto op = post.as<FunctionNode>()) {
       return Function(op->params, op->body, NullValue<Type>(), op->type_params, op->attrs);
-      std::cout << "After DynamicToStatic\n" << AsText(post, false) << std::endl;
     }
     return post;
   }
@@ -275,17 +278,12 @@ Expr DynamicToStatic(Function f, IRModule m) {
     vars.Set(kv.second, kv.first);
   }
   const auto gv = vars[f];
-  // Put a limit on the while loop
-  // Primarily used to prevent accidental infinite lops in development
-  const int loop_limit = 1000;
-  int i = 0;
-  do {
-    pre = expr;
-    expr = mutator.Mutate(m->functions[gv]);
-    m->Update(gv, Downcast<BaseFunc>(expr));
-    i += 1;
-  } while (!StructuralEqual()(pre, expr) && i < loop_limit);
-  std::cout << "ran " << i << " passes" << std::endl;
+  pre = expr;
+  expr = mutator.Mutate(m->functions[gv]);
+  //std::cout << "After DynamicToStatic\n" << AsText(expr, false) << std::endl;
+  expr = PrepareInput(expr);
+  std::cout << "done PrepareInput" << std::endl;
+  std::cout << AsText(expr, false) << std::endl;
   return expr;
 }
 
