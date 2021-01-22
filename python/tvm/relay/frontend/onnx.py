@@ -2301,9 +2301,9 @@ class If(OnnxOpConverter):
 
         # Convert each branch to a relay expression.
         with then_graph:
-            then_expr = then_graph.from_onnx(then_branch, graph_scope._opset, get_output_expr=True)
+            then_expr = then_graph.from_onnx(then_branch, graph_scope.opset, get_output_expr=True)
         with else_graph:
-            else_expr = else_graph.from_onnx(else_branch, graph_scope._opset, get_output_expr=True)
+            else_expr = else_graph.from_onnx(else_branch, graph_scope.opset, get_output_expr=True)
 
         # Add constants from both branches to parent graph.
         graph_scope._params.update(then_graph._params)
