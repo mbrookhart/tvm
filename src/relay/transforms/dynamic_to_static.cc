@@ -146,19 +146,11 @@ class DynamicToStaticMutator : public MixedModeMutator {
         {Op::Get("dyn.full"),
          [](const CallNode* call_node) {
            auto args = PrepareArgs(call_node);
-           //std::cout << "----------------dyn.full args---------------------" << std::endl;
-           //std::cout << AsText(args[0], false) << std::endl;
-           //std::cout << AsText(args[1], false) << std::endl;
-           //std::cout << "--------------------------------------------------" << std::endl;
            if (const ConstantNode* shape = args[1].as<ConstantNode>()) {
              ICHECK_EQ(shape->data->ndim, 1);
              const InitOpAttrs* param = call_node->attrs.as<InitOpAttrs>();
              ICHECK(param);
              return MakeFull(call_node->args[0], ToVector(shape->data), param->dtype);
-           } else {
-             //std::cout << "----------------dyn.full shape---------------------" << std::endl;
-             //std::cout << AsText(args[1], false) << std::endl;
-             //std::cout << "--------------------------------------------------" << std::endl;
            }
            return Expr(nullptr);
          }},
@@ -280,10 +272,7 @@ Expr DynamicToStatic(Function f, IRModule m) {
   const auto gv = vars[f];
   pre = expr;
   expr = mutator.Mutate(m->functions[gv]);
-  //std::cout << "After DynamicToStatic\n" << AsText(expr, false) << std::endl;
   expr = PrepareInput(expr);
-  std::cout << "done PrepareInput" << std::endl;
-  std::cout << AsText(expr, false) << std::endl;
   return expr;
 }
 

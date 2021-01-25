@@ -734,7 +734,7 @@ class PatternGrouper {
                 !matcher_->expr_graph_.node_map_.at(expr)->Dominates(output)) {
               // Exit because nodes in this pattern's body are used outside the pattern
               // fusing it would be invalid
-              return;
+                return;
             }
           }
         }
