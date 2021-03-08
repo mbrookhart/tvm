@@ -60,6 +60,9 @@ Expr MakeOnes(Array<Integer> shape, DataType dtype);
 
 Expr MakePad(Expr data, Array<Array<Integer>> pad_width, double pad_value, String pad_mode);
 
+Expr MakeQuantize(Expr data, Expr output_scale, Expr output_zero_point, int axis,
+                  DataType out_dtype);
+
 Expr MakeReduce(Expr data, Array<Integer> axis, bool keepdims, bool exclude, String op_name);
 
 Expr MakeRepeat(Expr data, int repeats, int axis);
