@@ -36,17 +36,6 @@ namespace tvm {
 namespace relay {
 namespace quantize {
 
-std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> black_list_{Op::Get("qnn.dequantize"),
-                                                                    Op::Get("qnn.requantize")};
-// TODO: What do we need to add to the grey list
-std::map<Expr, std::function<Expr(const Expr&, const Expr&)>, ObjectPtrHash, ObjectPtrEqual>
-    grey_list_{{Op::Get("nn.relu"), [](const Expr& relu, const Expr& quantize_node) {
-                  return Call(Op::Get("maximum"),
-                              {quantize_node.as<CallNode>()->args[2], relu.as<CallNode>()->args[0]},
-                              Attrs(), {});
-                }}};
-
-
 bool is_op(const Expr& node, const Expr& op) {
   if (auto call_node = node.as<CallNode>()) {
     if (call_node->op == op) {
@@ -85,7 +74,7 @@ class Requantizer {
       }
     }
   
-    return Expr();// RequantizeMutator(this).Mutate(expr);
+    return RequantizeMutator(this).Mutate(expr);
   }
 
  protected:
@@ -108,46 +97,65 @@ class Requantizer {
     return out;
   }
   std::unordered_map<Expr, std::pair<int, Expr>, ObjectPtrHash, ObjectPtrEqual> quantize_pairs_;
-  std::unordered_set<Expr> removable_quantizes;
+  std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> removable_quantizes;
+
+  std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> black_list_{Op::Get("qnn.dequantize"),
+                                                                      Op::Get("qnn.requantize")};
+  // TODO: What do we need to add to the grey list
+  std::unordered_map<Expr, std::function<Expr(const Expr&, const Expr&)>, ObjectPtrHash, ObjectPtrEqual>
+      grey_list_{{Op::Get("nn.relu"), [](const Expr& relu, const Expr& quantize_node) {
+                    return Call(Op::Get("maximum"),
+                                {quantize_node.as<CallNode>()->args[2], relu.as<CallNode>()->args[0]},
+                                Attrs(), {});
+                  }}};
+
 
   IndexedGraph<Expr> graph_;
   Expr dequantize_op = Op::Get("qnn.dequantize");
   Expr quantize_op = Op::Get("qnn.quantize");
   
-  //class RequantizeMutator : public MixedModeMutator {
-  // public:
-  //  RequantizeMutator(Requantizer* parent) : parent_(parent) {}
+  class RequantizeMutator : public MixedModeMutator {
+   public:
+    RequantizeMutator(Requantizer* parent) : parent_(parent) {}
 
-  //  Expr Rewrite_(const CallNode* call_node, const Expr& post) {
-  //    const CallNode* post_call = post.as<CallNode>();
-  //    auto new_args = post_call->args;
-  //    if (parent_->quantize_pairs_.count(GetRef<Expr>(call_node))) {
-  //      auto pair = parent_->quantize_pairs_[GetRef<Expr>(call_node)];
-  //      // Record the current quantize for use when processing greylisted ops
-  //      parent_quantize_ = pair.second;
+    Expr Rewrite_(const CallNode* call_node, const Expr& post) {
+      const CallNode* post_call = post.as<CallNode>();
+      if (parent_->quantize_pairs_.count(GetRef<Expr>(call_node))) {
+        auto pair = parent_->quantize_pairs_[GetRef<Expr>(call_node)];
+        // Record the current quantize for use when processing greylisted ops
+        parent_quantize_ = pair.second;
 
-  //      const CallNode* quantize = pair.second.as<CallNode>();
-  //      auto attrs = quantize->attrs.as<QuantizeAttrs>();
-  //      new_args[pair.first] = MakeQuantize(new_args[pair.first], quantize->args[1],
-  //                                          quantize->args[2], attrs->axis, attrs->out_dtype);
-  //      return Call(call_node->op, new_args, attrs);
-  //    } else if (parent_->removable_quantizes.count(GetRef<Expr>(call_node)) {
-  //      return new_args[0];
-  //    } else if (parent_quantize_.defined() && grey_list_.count(call_node->op)) {
-  //      auto pair = quantize_pairs[GetRef<Expr>(call_node)];
-  //      return grey_list_[parent_quantize_](GetRef<Expr>(call_node), pair.second);
-  //    } else if (call_node->op == Op::Get("qnn.dequantize") ) {
-  //      parent_quantize_ = Expr();
-  //    } 
-  //    return post;
-  //  }
+        const CallNode* quantize = pair.second.as<CallNode>();
+        auto attrs = quantize->attrs.as<qnn::QuantizeAttrs>();
+        Array<Expr> new_args;
+        for (size_t i = 0; i < post_call->args.size(); ++i) {
+          if (i == pair.first) {
+            new_args.push_back(MakeQuantize(new_args[i], quantize->args[1],
+                                            quantize->args[2], attrs->axis, attrs->out_dtype));
+          } else {
+            new_args.push_back(post_call->args[i]);
+          }
+        }
+        return Call(call_node->op, new_args, call_node->attrs);
+      } else if (parent_->removable_quantizes.count(GetRef<Expr>(call_node))) {
+        return post_call->args[0];
+      } else if (parent_quantize_.defined() && parent_->grey_list_.count(call_node->op)) {
+        auto pair = parent_->quantize_pairs_[GetRef<Expr>(call_node)];
+        return parent_->grey_list_[parent_quantize_](GetRef<Expr>(call_node), pair.second);
+      } else if (call_node->op == Op::Get("qnn.dequantize") ) {
+        parent_quantize_ = Expr();
+      } 
+      return post;
+    }
 
-  // protected:
-  //  Requantizer* parent_;
-  //  Expr parent_quantize_;
-  //};
+   protected:
+    Requantizer* parent_;
+    Expr parent_quantize_;
+  };
 };
 
+TVM_REGISTER_GLOBAL("relay.transform.quantize.requantize")
+    .set_body_typed([](const Expr& expr) { return Requantizer().Requantize(expr); });
 
 }  // namespace quantize
 }  // namespace relay

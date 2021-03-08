@@ -40,7 +40,7 @@ from ._average_max_channel_patterns import (
 
 from ._quantizer_pattern_utils import all_patterns, average_max_per_channel_patterns
 
-from ._quantizer import Quantizer
+from ._quantizer import Quantizer, requantize
 from ._calibrator import QuantizationCalibrator
 from ._requantizer import Requantizer
 

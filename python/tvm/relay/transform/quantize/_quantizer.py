@@ -153,3 +153,7 @@ def lower_partitions(expr):
 
 def skip_partitions(expr, skip_first=True, skip_last=True):
     return ffi.skip_partitions(expr, skip_first, skip_last)
+
+def requantize(expr):
+    print("hi from requantize")
+    return ffi.requantize(expr)

@@ -17,14 +17,14 @@
 
 import tvm
 from tvm import relay
-from tvm.relay.transform.quantize import Requantizer
+from tvm.relay.transform.quantize import requantize
 from tvm.relay.frontend.common import infer_type
 
 import numpy as np
 
 
 def check_requantize(pre_graph, expected_graph):
-    post_graph = Requantizer().requantize(pre_graph)
+    post_graph = requantize(pre_graph)
 
     post_graph = infer_type(post_graph)
     expected_graph = infer_type(expected_graph)
