@@ -17,3 +17,4 @@
 # under the License.
 export VTA_HW_PATH=`pwd`/3rdparty/vta-hw
 cd $1 && cmake .. && make $2 && cd ..
+find `pwd` -type d -exec chmod -w
