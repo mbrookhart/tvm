@@ -40,6 +40,8 @@ Expr MakeBroadCastTo(Expr data, Array<Integer> shape);
 
 Expr MakeCast(Expr data, DataType dtype);
 
+Expr MakeCastLike(Expr data, Expr dtype_like);
+
 Expr MakeClip(Expr a, double a_min, double a_max);
 
 Expr MakeConcatenate(Expr data, int axis);
@@ -59,9 +61,6 @@ Expr MakeAutoSchedulerLayoutTransform(Expr data, String src_layout, String dst_l
 Expr MakeOnes(Array<Integer> shape, DataType dtype);
 
 Expr MakePad(Expr data, Array<Array<Integer>> pad_width, double pad_value, String pad_mode);
-
-Expr MakeQuantize(Expr data, Expr output_scale, Expr output_zero_point, int axis,
-                  DataType out_dtype);
 
 Expr MakeReduce(Expr data, Array<Integer> axis, bool keepdims, bool exclude, String op_name);
 
@@ -108,7 +107,11 @@ Expr MakeArange(Expr start, Expr stop, Expr step, DataType dtype);
 Expr MakeShapeOf(Expr data, DataType dtype);
 
 Expr MakeTake(Expr data, Expr indices, Integer axis, String mode);
+namespace qnn {
+Expr MakeQuantize(Expr data, Expr output_scale, Expr output_zero_point, int axis,
+                  DataType out_dtype);
 
+}  // namespace qnn
 }  // namespace relay
 }  // namespace tvm
 #endif  // TVM_RELAY_OP_MAKE_OP_H_

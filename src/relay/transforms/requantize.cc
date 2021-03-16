@@ -50,8 +50,8 @@ class Requantizer {
   Expr Requantize(const Expr& expr) {
     graph_ = CreateIndexedGraph(expr);
     // traverse the graph in reverse topological order
-    for (size_t i = graph_.topological_order_.size() - 1; i >= 0; --i) {
-      auto node = graph_.topological_order_[i];
+    for (size_t i = graph_.topological_order_.size(); i-- != 0; ) {
+      auto& node = graph_.topological_order_[i];
       if (is_op(node->ref_, dequantize_op)) {
         std::vector<Expr> terminating_quantizes;
         bool removeable = true;
@@ -82,9 +82,9 @@ class Requantizer {
     if (is_op(node->ref_, quantize_op)) {
       return node->ref_;
     } else if (black_list_.count(node->ref_) || 
-               node->inputs_.size() > 1 || 
-               node->outputs_.size() == 0 || 
-               node->ref_.as<CallNode>() == nullptr) {
+               node->ref_.as<CallNode>() == nullptr ||
+               node->inputs_.size() > 2 || // op + single input 
+               node->outputs_.size() == 0) {
       return Expr(); 
     } 
     Expr out = FindQuantizeUser(node->outputs_[0]);
@@ -96,7 +96,7 @@ class Requantizer {
     }
     return out;
   }
-  std::unordered_map<Expr, std::pair<int, Expr>, ObjectPtrHash, ObjectPtrEqual> quantize_pairs_;
+  std::unordered_map<Expr, std::pair<size_t, Expr>, ObjectPtrHash, ObjectPtrEqual> quantize_pairs_;
   std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> removable_quantizes;
 
   std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> black_list_{Op::Get("qnn.dequantize"),
@@ -104,8 +104,10 @@ class Requantizer {
   // TODO: What do we need to add to the grey list
   std::unordered_map<Expr, std::function<Expr(const Expr&, const Expr&)>, ObjectPtrHash, ObjectPtrEqual>
       grey_list_{{Op::Get("nn.relu"), [](const Expr& relu, const Expr& quantize_node) {
+                    Expr input = relu.as<CallNode>()->args[0];
+                    Expr zp = MakeCastLike(quantize_node.as<CallNode>()->args[2], input);
                     return Call(Op::Get("maximum"),
-                                {quantize_node.as<CallNode>()->args[2], relu.as<CallNode>()->args[0]},
+                                {input,zp},
                                 Attrs(), {});
                   }}};
 
@@ -130,18 +132,21 @@ class Requantizer {
         Array<Expr> new_args;
         for (size_t i = 0; i < post_call->args.size(); ++i) {
           if (i == pair.first) {
-            new_args.push_back(MakeQuantize(new_args[i], quantize->args[1],
+            new_args.push_back(qnn::MakeQuantize(post_call->args[i], quantize->args[1],
                                             quantize->args[2], attrs->axis, attrs->out_dtype));
           } else {
             new_args.push_back(post_call->args[i]);
           }
         }
-        return Call(call_node->op, new_args, call_node->attrs);
+        Expr new_post = Call(call_node->op, new_args, call_node->attrs);
+        if (parent_quantize_.defined() && parent_->grey_list_.count(call_node->op)) {
+          return parent_->grey_list_[call_node->op](new_post, parent_quantize_);
+        }
+        return new_post;
       } else if (parent_->removable_quantizes.count(GetRef<Expr>(call_node))) {
         return post_call->args[0];
       } else if (parent_quantize_.defined() && parent_->grey_list_.count(call_node->op)) {
-        auto pair = parent_->quantize_pairs_[GetRef<Expr>(call_node)];
-        return parent_->grey_list_[parent_quantize_](GetRef<Expr>(call_node), pair.second);
+        return parent_->grey_list_[parent_quantize_](post, parent_quantize_);
       } else if (call_node->op == Op::Get("qnn.dequantize") ) {
         parent_quantize_ = Expr();
       } 
