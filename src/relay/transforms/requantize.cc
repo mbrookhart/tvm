@@ -47,6 +47,8 @@ bool is_op(const Expr& node, const Expr& op) {
 
 class Requantizer {
  public:
+  Requantizer(const Array<Op> skip_list) : skip_list_(skip_list.begin(), skip_list.end()) {}
+
   Expr Requantize(const Expr& expr) {
     graph_ = CreateIndexedGraph(expr);
     // traverse the graph in reverse topological order
@@ -79,12 +81,16 @@ class Requantizer {
 
  protected:
   Expr FindQuantizeUser(IndexedGraph<Expr>::Node* node) {
-    if (is_op(node->ref_, quantize_op)) {
-      return node->ref_;
-    } else if (node->ref_.as<CallNode>() == nullptr ||
-               !fquantize_rewrite_.count(Downcast<Op>(node->ref_.as<CallNode>()->op)) ||
-               node->inputs_.size() > 2 || 
-               node->outputs_.size() == 0) {
+    Op op;
+    if (auto call_node = node->ref_.as<CallNode>()) {
+      Op op = Downcast<Op>(call_node->op);
+      if (is_op(node->ref_, quantize_op)) {
+        return node->ref_;
+      } else if (skip_list_.count(op) || !fquantize_rewrite_.count(op) ||
+                 node->outputs_.size() == 0) {
+        return Expr();
+      }
+    } else {
       return Expr();
     }
     Expr out = FindQuantizeUser(node->outputs_[0]);
@@ -101,6 +107,7 @@ class Requantizer {
   std::unordered_map<Expr, std::pair<size_t, Expr>, ObjectPtrHash, ObjectPtrEqual> quantize_pairs_;
   std::unordered_set<Expr, ObjectPtrHash, ObjectPtrEqual> removable_quantizes;
 
+  std::unordered_set<Op, ObjectPtrHash, ObjectPtrEqual> skip_list_;
   IndexedGraph<Expr> graph_;
   Expr dequantize_op = Op::Get("qnn.dequantize");
   Expr quantize_op = Op::Get("qnn.quantize");
@@ -151,9 +158,10 @@ class Requantizer {
   };
 };
 
-TVM_REGISTER_GLOBAL("relay.transform.quantize.requantize").set_body_typed([](const Expr& expr) {
-  return Requantizer().Requantize(expr);
-});
+TVM_REGISTER_GLOBAL("relay.transform.quantize.requantize")
+    .set_body_typed([](const Expr& expr, const Array<Op>& skip_list) {
+      return Requantizer(skip_list).Requantize(expr);
+    });
 
 }  // namespace quantize
 }  // namespace relay

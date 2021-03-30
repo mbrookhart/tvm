@@ -25,8 +25,8 @@ from tvm.relay.frontend.common import infer_type
 import numpy as np
 
 
-def check_requantize(pre_graph, expected_graph):
-    post_graph = requantize(pre_graph)
+def check_requantize(pre_graph, expected_graph, skip_list=[]):
+    post_graph = requantize(pre_graph, skip_list)
 
     post_graph = infer_type(post_graph)
     expected_graph = infer_type(expected_graph)
@@ -59,6 +59,8 @@ def test_quantize_relu():
     expected_graph = relay.Function(pre_graph.params, int8_op)
 
     check_requantize(pre_graph, expected_graph)
+    # test skippping
+    check_requantize(pre_graph, pre_graph, ["nn.relu"])
 
 
 @pytest.mark.parametrize(
@@ -98,7 +100,5 @@ def test_identity_op(pre_op):
     q = pre_graph.body
     quant = relay.qnn.op.quantize(dq, q.args[1], q.args[2])
     int8_op = pre_op(quant)
-
     expected_graph = relay.Function(pre_graph.params, int8_op)
-
     check_requantize(pre_graph, expected_graph)

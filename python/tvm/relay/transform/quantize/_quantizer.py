@@ -154,6 +154,7 @@ def lower_partitions(expr):
 def skip_partitions(expr, skip_first=True, skip_last=True):
     return ffi.skip_partitions(expr, skip_first, skip_last)
 
-def requantize(expr):
-    print("hi from requantize")
-    return ffi.requantize(expr)
+
+def requantize(expr, skip_list=[]):
+    skip_list = [s if isinstance(s, relay.Expr) else relay.op.get(s) for s in skip_list]
+    return ffi.requantize(expr, skip_list)
