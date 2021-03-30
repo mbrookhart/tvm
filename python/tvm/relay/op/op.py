@@ -401,7 +401,7 @@ def register_external_compiler(op_name, fexternal=None, level=10):
     return tvm.ir.register_op_attr(op_name, "FTVMExternalCompiler", fexternal, level)
 
 
-def register_quantize_rewrite(op_name, quantize_rewrite, level=10):
+def register_quantize_rewrite(op_name, quantize_rewrite=None, level=10):
     """Register alter op layout function for an op
 
     Parameters
@@ -415,7 +415,7 @@ def register_quantize_rewrite(op_name, quantize_rewrite, level=10):
     level : int
         The priority level
     """
-    return tvm.ir.register_op_attr(op_name, "FTVMQuantizeRewreite", quantize_rewrite, level)
+    return tvm.ir.register_op_attr(op_name, "FTVMQuantizeRewrite", quantize_rewrite, level)
 
 
 @tvm._ffi.register_func("relay.op.compiler._lower")

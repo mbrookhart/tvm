@@ -16,47 +16,43 @@
 # under the License.
 # pylint: disable=no-else-return, invalid-name, unused-argument, too-many-arguments, consider-using-in
 """op quantization registration"""
-from .. import op
+from ... import op
 
 
 def identity(post, scale, zp):
     return post
 
 
-@op.register_quantize_rewrite("argmax", identity)
-@op.register_quantize_rewrite("argmin", identity)
-@op.register_quantize_rewrite("argsort", identity)
-@op.register_quantize_rewrite("broadcast_to", identity)
-@op.register_quantize_rewrite("contrib_reverse_reshape", identity)
-@op.register_quantize_rewrite("copy", identity)
-@op.register_quantize_rewrite("expand_dims", identity)
-@op.register_quantize_rewrite("full", identity)
-@op.register_quantize_rewrite("layout_transform", identity)
-@op.register_quantize_rewrite("max", identity)
-@op.register_quantize_rewrite("meshgrid", identity)
-@op.register_quantize_rewrite("min", identity)
-@op.register_quantize_rewrite("nn.adaptive_max_pool2d", identity)
-@op.register_quantize_rewrite("nn.adaptive_max_pool3d", identity)
-@op.register_quantize_rewrite("nn.batch_flatten", identity)
-@op.register_quantize_rewrite("nn.batch_to_space_nd", identity)
-@op.register_quantize_rewrite("nn.depth_to_space", identity)
-@op.register_quantize_rewrite("nn.max_pool1d", identity)
-@op.register_quantize_rewrite("nn.max_pool2d", identity)
-@op.register_quantize_rewrite("nn.max_pool3d", identity)
-@op.register_quantize_rewrite("nn.space_to_batch_nd", identity)
-@op.register_quantize_rewrite("nn.space_to_depth", identity)
-@op.register_quantize_rewrite("repeat", identity)
-@op.register_quantize_rewrite("reshape", identity)
-@op.register_quantize_rewrite("reverse", identity)
-@op.register_quantize_rewrite("shape_of", identity)
-@op.register_quantize_rewrite("sort", identity)
-@op.register_quantize_rewrite("split", identity)
-@op.register_quantize_rewrite("squeeze", identity)
-@op.register_quantize_rewrite("stack", identity)
-@op.register_quantize_rewrite("strided_slice", identity)
-@op.register_quantize_rewrite("tile", identity)
-@op.register_quantize_rewrite("transpose", identity)
-@op.register_quantize_rewrite("relu")
+op.register_quantize_rewrite("argmax", identity)
+op.register_quantize_rewrite("argmin", identity)
+op.register_quantize_rewrite("argsort", identity)
+op.register_quantize_rewrite("broadcast_to", identity)
+op.register_quantize_rewrite("copy", identity)
+op.register_quantize_rewrite("expand_dims", identity)
+op.register_quantize_rewrite("layout_transform", identity)
+op.register_quantize_rewrite("max", identity)
+op.register_quantize_rewrite("min", identity)
+op.register_quantize_rewrite("nn.adaptive_max_pool2d", identity)
+op.register_quantize_rewrite("nn.adaptive_max_pool3d", identity)
+op.register_quantize_rewrite("nn.batch_flatten", identity)
+op.register_quantize_rewrite("nn.batch_to_space_nd", identity)
+op.register_quantize_rewrite("nn.depth_to_space", identity)
+op.register_quantize_rewrite("nn.max_pool1d", identity)
+op.register_quantize_rewrite("nn.max_pool2d", identity)
+op.register_quantize_rewrite("nn.max_pool3d", identity)
+op.register_quantize_rewrite("nn.space_to_depth", identity)
+op.register_quantize_rewrite("repeat", identity)
+op.register_quantize_rewrite("reshape", identity)
+op.register_quantize_rewrite("reverse", identity)
+op.register_quantize_rewrite("shape_of", identity)
+op.register_quantize_rewrite("sort", identity)
+op.register_quantize_rewrite("squeeze", identity)
+op.register_quantize_rewrite("strided_slice", identity)
+op.register_quantize_rewrite("tile", identity)
+op.register_quantize_rewrite("transpose", identity)
+
+
+@op.register_quantize_rewrite("nn.relu")
 def relu_quantize_rewrite(post, scale, zp):
     i = post.args[0]
-    return op.maximum(i, _op.cast_like(zp, i))
+    return op.maximum(i, op.cast_like(zp, i))

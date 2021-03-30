@@ -47,3 +47,5 @@ from ._requantizer import Requantizer
 from ._quantize_pass import QuantizePass
 
 from . import _ffi as ffi
+
+from ._quantize_rewrite import identity

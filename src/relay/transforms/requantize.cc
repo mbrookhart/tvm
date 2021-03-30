@@ -83,6 +83,7 @@ class Requantizer {
       return node->ref_;
     } else if (node->ref_.as<CallNode>() == nullptr ||
                !fquantize_rewrite_.count(Downcast<Op>(node->ref_.as<CallNode>()->op)) ||
+               node->inputs_.size() > 2 || 
                node->outputs_.size() == 0) {
       return Expr();
     }
