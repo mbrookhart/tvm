@@ -222,6 +222,10 @@ using Shape = Array<IndexExpr>;
 using FShapeFunc = runtime::TypedPackedFunc<Array<te::Tensor>(
     const Attrs& attrs, const Array<te::Tensor>& inputs, const Array<IndexExpr>& out_ndims)>;
 
+/*! \brief Rewriting operations to run on quantized data. */
+using FTVMQuantizeRewrite =
+    runtime::TypedPackedFunc<Expr(const Expr& post, const Expr& scale, const Expr& zero_point)>;
+
 }  // namespace relay
 }  // namespace tvm
 #endif  // TVM_RELAY_OP_ATTR_TYPES_H_
