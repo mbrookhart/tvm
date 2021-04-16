@@ -53,6 +53,7 @@ def get_tvm_output_with_vm(
     mod, params = relay.frontend.from_onnx(
         graph_def, shape_dict, opset=opset, freeze_params=freeze_params
     )
+    print(relay.transform.InferType()(mod))
 
     if convert_to_static:
         mod = relay.transform.DynamicToStatic()(mod)
@@ -4218,7 +4219,6 @@ unsupported_onnx_tests = [
     "test_qlinearconv/",
     "test_qlinearmatmul_2D/",
     "test_qlinearmatmul_3D/",
-    "test_resize_tf_crop_and_resize/",
     ## For these three tests, ONNX 1.6.0 has incorrect graphs, they pass with ONNX 1.7.0
     "test_resize_upsample_sizes_nearest_ceil_half_pixel/",
     "test_resize_upsample_sizes_nearest_floor_align_corners/",

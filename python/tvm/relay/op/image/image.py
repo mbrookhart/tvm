@@ -182,7 +182,7 @@ def crop_and_resize(
         A 1-D tensor of shape [num_boxes], box_ind[i] specifies the data that
         the i-th box refers to.
 
-    crop_size : Tuple of PrimExpr
+    crop_size : Tuple of PrimExpr or relay.Expr
         The target size to which each box will be resized.
 
     layout : str, optional
@@ -202,6 +202,12 @@ def crop_and_resize(
     result: relay.Expr
         The computed result.
     """
+    if isinstance(crop_size, Constant):
+        crop_size = list(crop_size.data.asnumpy().astype("int32"))
+    if isinstance(crop_size, Expr):
+        return _dyn_make.crop_and_resize(
+            data, boxes, box_indices, crop_size, layout, method, extrapolation_value, out_dtype
+        )
     return _make.crop_and_resize(
         data, boxes, box_indices, crop_size, layout, method, extrapolation_value, out_dtype
     )

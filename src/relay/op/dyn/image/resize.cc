@@ -108,6 +108,74 @@ RELAY_REGISTER_OP("dyn.image.resize")
     .add_type_rel("DynResize", ResizeRel)
     .set_attr<TOpPattern>("TOpPattern", kInjective);
 
+bool CropAndResizeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                      const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 5);
+  const auto* data = types[0].as<TensorTypeNode>();
+  const auto* boxes = types[1].as<TensorTypeNode>();
+  const auto* box_indices = types[2].as<TensorTypeNode>();
+  if (data == nullptr || boxes == nullptr || box_indices == nullptr) return false;
+
+  const CropAndResizeAttrs* param = attrs.as<CropAndResizeAttrs>();
+  ICHECK(param != nullptr);
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = data->dtype;
+  }
+
+  // 4-D tensor of shape [num_boxes, crop_height, crop_width, depth]
+  static const Layout kNCHW("NCHW");
+  const Layout in_layout(param->layout);
+  auto layout_converter = tir::BijectiveLayout(in_layout, kNCHW);
+  auto oshape = layout_converter.ForwardShape(data->shape);
+  oshape.Set(0, boxes->shape[0]);
+  oshape.Set(2, Any());
+  oshape.Set(3, Any());
+  auto bshape = layout_converter.BackwardShape(oshape);
+  // assign output type
+  reporter->Assign(types[4], TensorType(bshape, out_dtype));
+  return true;
+}
+
+Expr MakeCropAndResize(Expr data, Expr boxes, Expr box_indices, Expr crop_size, String layout,
+                       String method, double extrapolation_value, DataType out_dtype) {
+  auto attrs = make_object<CropAndResizeAttrs>();
+  attrs->layout = std::move(layout);
+  attrs->method = std::move(method);
+  attrs->extrapolation_value = std::move(extrapolation_value);
+  attrs->out_dtype = out_dtype;
+  static const Op& op = Op::Get("dyn.image.crop_and_resize");
+  return Call(op, {data, boxes, box_indices, crop_size}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.dyn.image._make.crop_and_resize").set_body_typed(MakeCropAndResize);
+
+RELAY_REGISTER_OP("dyn.image.crop_and_resize")
+    .describe(
+        R"code(Perform crop and resize to input array with nearest neighbour or bilinear interpolation.
+
+- **data**: data is 4D array of shape
+            (batch_size, channels, in_height, in_width) for NCHW
+            (batch_size, in_height, in_width, channels) for NHWC
+
+- **out**: Output is 4D array of shape
+           for layout NCHW
+           (batch_size, channels, crop_size[0], crop_size[1])
+
+           for layout NHWC
+           (batch_size, crop_size[0], crop_size[1], channels)
+)code" TVM_ADD_FILELINE)
+    .set_num_inputs(4)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("boxes", "Tensor", "The boxes tensor.")
+    .add_argument("box_indices", "Tensor", "The box indices tensor.")
+    .add_argument("size", "Tensor", "The box indices tensor.")
+    .set_attrs_type<CropAndResizeAttrs>()
+    .set_support_level(5)
+    .add_type_rel("DynCropAndResize", CropAndResizeRel)
+    .set_attr<TOpPattern>("TOpPattern", kInjective);
+
 }  // namespace dyn
 }  // namespace relay
 }  // namespace tvm

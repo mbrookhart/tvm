@@ -93,3 +93,65 @@ def resize_shape_func(attrs, inputs, _):
             )
         ]
     return out
+
+
+# crop and resize
+@reg.register_compute("dyn.image.crop_and_resize")
+def compute_crop_and_resize(attrs, inputs, out_type):
+    layout = attrs.layout
+    method = attrs.method
+    extrapolation_value = attrs.extrapolation_value
+    out_dtype = attrs.out_dtype
+    return [
+        tvm.topi.image.crop_and_resize(
+            inputs[0],
+            inputs[1],
+            inputs[2],
+            inputs[3],
+            layout,
+            method,
+            extrapolation_value,
+            out_dtype,
+        )
+    ]
+
+
+reg.register_injective_schedule("dyn.image.crop_and_resize")
+
+
+@script
+def _crop_and_resize_shape_func(
+    image_shape, boxes_shape, crop_size, height_axis, width_axis, channel_axis
+):
+    out = output_tensor((4,), "int64")
+    out[0] = boxes_shape[0]
+    out[height_axis] = int64(crop_size[0])
+    out[width_axis] = int64(crop_size[1])
+    out[channel_axis] = image_shape[channel_axis]
+    return out
+
+
+@reg.register_shape_func("dyn.image.crop_and_resize", False)
+def dyn_crop_and_resize_shape_func(attrs, inputs, _):
+    """
+    Shape function for crop_and_resize op.
+    """
+    layout = attrs.layout
+    height_axis = width_axis = channel_axis = 1
+    for i, letter in enumerate(layout):
+        if letter == "H":
+            height_axis = i
+        if letter == "W":
+            width_axis = i
+        if letter == "C":
+            channel_axis = i
+    return [
+        _crop_and_resize_shape_func(
+            inputs[0],
+            inputs[1],
+            inputs[3],
+            convert(height_axis),
+            convert(width_axis),
+            convert(channel_axis),
+        )
+    ]

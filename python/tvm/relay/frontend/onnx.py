@@ -2238,6 +2238,14 @@ class Resize(OnnxOpConverter):
             size = _op.cast(shape_of(inputs[0]), infer_type(scale).checked_type.dtype) * scale
         out_size = fold_constant(_op.strided_slice(size, [2], [4]))
 
+        if coord_trans == "tf_crop_and_resize":
+            extrapolation_value = attr.get("extrapolation_value", 0.0)
+            boxes = _op.reshape(inputs[1], [-1, 4])
+            box_indices = fold_constant(_op.strided_slice(shape_of(boxes), [0], [1], [1]))
+            return _op.image.crop_and_resize(
+                inputs[0], boxes, box_indices, out_size, layout, method, extrapolation_value
+            )
+
         return _op.image.resize(
             inputs[0], out_size, layout, method, coord_trans, nearest_mode, alpha, exclude
         )
