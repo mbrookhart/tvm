@@ -297,10 +297,6 @@ Doc RelayTextPrinter::PrintExpr(const Expr& expr, bool meta, bool try_inline, bo
     printed_expr = VisitExpr(expr);
   }
 
-  if (optional_info) {
-    printed_expr << PrintOptionalInfo(expr);
-  }
-
   // add expr to doc
   if (expr.as<VarNode>()) {
     // This is our first time visiting the var and we hit the VarNode case
@@ -312,6 +308,9 @@ Doc RelayTextPrinter::PrintExpr(const Expr& expr, bool meta, bool try_inline, bo
     return memo_[expr];
   } else if (inline_expr) {
     memo_[expr] = printed_expr;
+    if (optional_info) {
+      printed_expr << PrintOptionalInfo(expr);
+    }
     return printed_expr;
   } else {
     // Already exists. Reuse
@@ -320,6 +319,9 @@ Doc RelayTextPrinter::PrintExpr(const Expr& expr, bool meta, bool try_inline, bo
     }
     Doc temp_var = AllocTemp();
     memo_[expr] = temp_var;
+    if (optional_info) {
+      printed_expr << PrintOptionalInfo(expr);
+    }
     doc_stack_.back() << temp_var << " = " << printed_expr << ";" << Doc::NewLine();
     return temp_var;
   }
